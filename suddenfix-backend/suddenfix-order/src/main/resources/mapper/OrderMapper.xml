@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.order.mapper.OrderMapper">
+
+    <insert id="insertOrder">
+        insert into t_order
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="orderId != null">order_id,</if>
+            <if test="orderNo != null and orderNo != ''">order_no,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="totalAmount != null">total_amount,</if>
+            <if test="freightAmount != null">freight_amount,</if>
+            <if test="discountAmount != null">discount_amount,</if>
+            <if test="payAmount != null">pay_amount,</if>
+            <if test="status != null">status,</if>
+            <if test="receiverName != null and receiverName != ''">receiver_name,</if>
+            <if test="receiverPhone != null and receiverPhone != ''">receiver_phone,</if>
+            <if test="receiverAddress != null and receiverAddress != ''">receiver_address,</if>
+            <if test="payChannel != null">pay_channel,</if>
+            <if test="outTradeNo != null and outTradeNo != ''">out_trade_no,</if>
+            <if test="payTime != null">pay_time,</if>
+            <if test="shipTime != null">ship_time,</if>
+            <if test="finishTime != null">finish_time,</if>
+            <if test="cancelTime != null">cancel_time,</if>
+            <if test="remark != null and remark != ''">remark,</if>
+            <if test="isDeleted != null">is_deleted,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time</if>
+        </trim>
+        <trim prefix=" values (" suffix=")" suffixOverrides=",">
+            <if test="orderId != null">#{orderId},</if>
+            <if test="orderNo != null and orderNo != ''">#{orderNo},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="totalAmount != null">#{totalAmount},</if>
+            <if test="freightAmount != null">#{freightAmount},</if>
+            <if test="discountAmount != null">#{discountAmount},</if>
+            <if test="payAmount != null">#{payAmount},</if>
+            <if test="status != null">#{status},</if>
+            <if test="receiverName != null and receiverName != ''">#{receiverName},</if>
+            <if test="receiverPhone != null and receiverPhone != ''">#{receiverPhone},</if>
+            <if test="receiverAddress != null and receiverAddress != ''">#{receiverAddress},</if>
+            <if test="payChannel != null">#{payChannel},</if>
+            <if test="outTradeNo != null and outTradeNo != ''">#{outTradeNo},</if>
+            <if test="payTime != null">#{payTime},</if>
+            <if test="shipTime != null">#{shipTime},</if>
+            <if test="finishTime != null">#{finishTime},</if>
+            <if test="cancelTime != null">#{cancelTime},</if>
+            <if test="remark != null and remark != ''">#{remark},</if>
+            <if test="isDeleted != null">#{isDeleted},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime}</if>
+        </trim>
+    </insert>
+    <update id="updateOrderStatusToPendingPayment">
+        update t_order
+        set status = 10,
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 0
+    </update>
+    <update id="updateOrderStatusToPaid">
+        update t_order set update_time = now(),pay_time = now(),status = 20,out_trade_no = #{outTradeNo} where order_id = #{orderId} and status = 10
+    </update>
+    <update id="desensitizeOrderUserInfo">
+        update t_order set receiver_name = "***",
+                           receiver_phone = concat(left(receiver_phone,3),"****",right(receiver_phone,4)),
+                           receiver_address = "***",
+                           update_time = now()
+        where user_id = #{userId} and receiver_name != "***"
+    </update>
+    <update id="cancelOrder">
+        UPDATE t_order
+        SET status = 50, cancel_time = now(), update_time = now()
+        WHERE order_id = #{orderId}
+          AND user_id = #{userId}
+          AND status = 10
+    </update>
+    <select id="selectStatusByOrderIdAndUserId" resultType="java.lang.Integer">
+        select status from t_order where user_id = #{userId} and order_id = #{orderId}
+    </select>
+
+    <select id="selectByOrderId" resultType="com.suddenfix.order.domain.pojo.Order">
+        select order_id,order_no,user_id,total_amount,freight_amount,discount_amount,pay_amount,status,receiver_name,
+               receiver_phone,receiver_address,pay_channel,out_trade_no,pay_time,ship_time,finish_time,cancel_time,
+               remark,is_deleted,create_time,update_time
+        from t_order
+        where order_id = #{orderId}
+    </select>
+
+    <select id="selectByUserId" resultType="com.suddenfix.order.domain.pojo.Order">
+        select order_id,order_no,user_id,total_amount,freight_amount,discount_amount,pay_amount,status,receiver_name,
+               receiver_phone,receiver_address,pay_channel,out_trade_no,pay_time,ship_time,finish_time,cancel_time,
+               remark,is_deleted,create_time,update_time
+        from t_order
+        where user_id = #{userId}
+          and is_deleted = 0
+        order by create_time desc
+    </select>
+</mapper>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.user.mapper.UserMappingPhoneMapper">
+    <insert id="insertMapping">
+        insert into t_user_mapping_phone (id,phone) values (#{id},#{phone})
+    </insert>
+
+    <delete id="deleteMapping">
+        delete from t_user_mapping_phone where phone = #{phone}
+    </delete>
+
+    <select id="selectUserIdByPhone" resultType="java.lang.Long">
+        select id from t_user_mapping_phone where phone = #{phone}
+    </select>
+</mapper>

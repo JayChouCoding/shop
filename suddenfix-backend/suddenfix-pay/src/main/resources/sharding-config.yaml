@@ -1,0 +1,57 @@
+databaseName: suddenfix_pay
+
+dataSources:
+  ds0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_pay_0?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_pay_1?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+rules:
+  - !SHARDING
+    tables:
+      t_pay_record:
+        actualDataNodes: ds0.t_pay_record_${[0,2,4,6,8,10,12,14]}, ds1.t_pay_record_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: db_inline_order_alg
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: table_inline_order_alg
+      t_local_msg:
+        actualDataNodes: ds0.t_local_msg_0, ds1.t_local_msg_1
+        databaseStrategy:
+          standard:
+            shardingColumn: business_id
+            shardingAlgorithmName: msg_db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: business_id
+            shardingAlgorithmName: msg_table_inline_alg
+
+    shardingAlgorithms:
+      db_inline_order_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.floorMod(Long.valueOf(order_id), 2)}
+      table_inline_order_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_pay_record_${Math.floorMod(Long.valueOf(order_id), 16)}
+      msg_db_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.floorMod(Long.valueOf(business_id), 2)}
+      msg_table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_local_msg_${Math.floorMod(Long.valueOf(business_id), 2)}

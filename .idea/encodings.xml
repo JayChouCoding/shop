@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-agent/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-agent/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-common/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-common/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-gateway/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-gateway/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-order/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-order/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-pay/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-pay/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-product/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-product/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-shipping/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-shipping/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-user/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/suddenfix-backend/suddenfix-user/src/main/resources" charset="UTF-8" />
+  </component>
+</project>

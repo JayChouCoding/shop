@@ -1,0 +1,59 @@
+server:
+  port: 8081 # 用户微服务端口
+
+spring:
+  application:
+    name: suddenfix-user
+  datasource:
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    url: jdbc:shardingsphere:classpath:sharding-config.yaml
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+        prefetch: 1
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.suddenfix.user.domain.pojo
+  configuration:
+    # 开启下划线转驼峰
+    map-underscore-to-camel-case: true
+    # 开启二级缓存（可选）
+    cache-enabled: true
+
+thread:
+  core-size: 10       # 核心线程数
+  max-size: 50        # 最大线程数
+  keep-alive: 60      # 非核心线程存活时间（秒）
+  queue-capacity: 200 # 阻塞队列长度
+
+suddenfix:
+  jwt:
+    # 秘钥：必须大于等于256位（即32个字符）
+    secret: SuddenFix-MicroService-Secret-Key-123456
+    # Token 有效期(ms)
+    expiration: 604800000

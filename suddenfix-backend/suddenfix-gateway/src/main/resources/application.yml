@@ -1,0 +1,90 @@
+server:
+  port: 8080 # 网关对外端口
+
+spring:
+  application:
+    name: suddenfix-gateway # 注册到 Nacos 里的名字
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 # Nacos 服务端地址
+
+    gateway:
+      routes:
+        # 用户服务路由
+        - id: user
+          uri: lb://suddenfix-user
+          predicates:
+            - Path=/api/user/**
+          filters:
+            - StripPrefix=1
+
+        - id: order
+          uri: lb://suddenfix-order
+          predicates:
+            - Path=/api/order/**
+          filters:
+            - StripPrefix=1
+
+        - id: coupon
+          uri: lb://suddenfix-order
+          predicates:
+            - Path=/api/coupon/**
+          filters:
+            - StripPrefix=1
+
+        - id: admin-coupon
+          uri: lb://suddenfix-order
+          predicates:
+            - Path=/api/admin/coupon/**
+          filters:
+            - StripPrefix=1
+
+        - id: product
+          uri: lb://suddenfix-product
+          predicates:
+            - Path=/api/product/**
+          filters:
+            - StripPrefix=1
+
+        - id: admin-product
+          uri: lb://suddenfix-product
+          predicates:
+            - Path=/api/admin/product/**
+          filters:
+            - StripPrefix=1
+
+        - id: agent
+          uri: lb://suddenfix-agent
+          predicates:
+            - Path=/api/agent/**
+          filters:
+            - StripPrefix=1
+
+        - id: pay
+          uri: lb://suddenfix-pay
+          predicates:
+            - Path=/api/pay/**
+          filters:
+            - StripPrefix=1
+
+        - id: shipping
+          uri: lb://suddenfix-shipping
+          predicates:
+            - Path=/api/shipping/**
+          filters:
+            - StripPrefix=1
+
+        - id: admin-shipping
+          uri: lb://suddenfix-shipping
+          predicates:
+            - Path=/api/admin/shipping/**
+          filters:
+            - StripPrefix=1
+
+suddenfix:
+  jwt:
+    # 秘钥：必须大于等于256位（即32个字符）
+    secret: SuddenFix-MicroService-Secret-Key-123456
+    # Token 有效期(ms)
+    expiration: 604800000

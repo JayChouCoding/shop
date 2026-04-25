@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.pay.mapper.PayMapper">
+
+
+    <insert id="insertPay">
+        insert into t_pay_record
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="payId != null">pay_id,</if>
+            <if test="orderId != null">order_id,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="outTradeNo != null and outTradeNo != ''">out_trade_no,</if>
+            <if test="channelTradeNo != null and channelTradeNo != ''">channel_trade_no,</if>
+            <if test="payChannel != null">pay_channel,</if>
+            <if test="amount != null">amount,</if>
+            <if test="status != null">status,</if>
+            <if test="payTime != null">pay_time,</if>
+            <if test="errorMsg != null and errorMsg != ''">error_msg,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+        </trim>
+        <trim prefix=" values (" suffix=")" suffixOverrides=",">
+            <if test="payId != null">#{payId},</if>
+            <if test="orderId != null">#{orderId},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="outTradeNo != null and outTradeNo != ''">#{outTradeNo},</if>
+            <if test="channelTradeNo != null and channelTradeNo != ''">#{channelTradeNo},</if>
+            <if test="payChannel != null">#{payChannel},</if>
+            <if test="amount != null">#{amount},</if>
+            <if test="status != null">#{status},</if>
+            <if test="payTime != null">#{payTime},</if>
+            <if test="errorMsg != null and errorMsg != ''">#{errorMsg},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+        </trim>
+    </insert>
+    <update id="updatePaySuccess">
+        update t_pay_record
+        set channel_trade_no = #{channelTradeNo},
+            status = 1,
+            pay_time = now(),
+            update_time = now()
+        where out_trade_no = #{outTradeNo}
+          and status = 0
+    </update>
+    <update id="updatePayRefunded">
+        update t_pay_record
+        set status = 3,
+            error_msg = #{errorMsg},
+            update_time = now()
+        where out_trade_no = #{outTradeNo}
+          and status = 1
+    </update>
+    <select id="selectPayByOrderIdAndUserId" resultType="com.suddenfix.pay.domain.pojo.Pay">
+        select pay_id,order_id,user_id,out_trade_no,channel_trade_no,pay_channel,amount,status,pay_time,error_msg,create_time,update_time
+        from t_pay_record where order_id = #{orderId} and user_id = #{userId}
+    </select>
+    <select id="selectPayByOrderId" resultType="com.suddenfix.pay.domain.pojo.Pay">
+        select pay_id,order_id,user_id,out_trade_no,channel_trade_no,pay_channel,amount,status,pay_time,error_msg,create_time,update_time
+        from t_pay_record where order_id = #{orderId}
+    </select>
+    <select id="selectPayByOutTradeNo" resultType="com.suddenfix.pay.domain.pojo.Pay">
+        select pay_id,order_id,user_id,out_trade_no,channel_trade_no,pay_channel,amount,status,pay_time,error_msg,create_time,update_time
+        from t_pay_record where out_trade_no = #{outTradeNo}
+    </select>
+</mapper>

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.pay.mapper.MsgMapper">
+
+
+    <insert id="insertMsg">
+        insert into t_local_msg
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="msgId != null">
+                msg_id,
+            </if>
+            <if test="businessId != null">
+                business_id,
+            </if>
+            <if test="topic != null and topic != ''">
+                topic,
+            </if>
+            <if test="payload != null and payload != ''">
+                payload,
+            </if>
+            <if test="status != null">
+                status,
+            </if>
+            <if test="retryCount != null">
+                retry_count,
+            </if>
+            <if test="nextRetryTime != null">
+                next_retry_time,
+            </if>
+            <if test="createTime != null">
+                create_time,
+            </if>
+            <if test="updateTime != null">
+                update_time,
+            </if>
+        </trim>
+        <trim prefix=" VALUES (" suffix=")" suffixOverrides=",">
+            <if test="msgId != null">
+                #{msgId},
+            </if>
+            <if test="businessId != null">
+                #{businessId},
+            </if>
+            <if test="topic != null and topic != ''">
+                #{topic},
+            </if>
+            <if test="payload != null and payload != ''">
+                #{payload},
+            </if>
+            <if test="status != null">
+                #{status},
+            </if>
+            <if test="retryCount != null">
+                #{retryCount},
+            </if>
+            <if test="nextRetryTime != null">
+                #{nextRetryTime},
+            </if>
+            <if test="createTime != null">
+                #{createTime},
+            </if>
+            <if test="updateTime != null">
+                #{updateTime},
+            </if>
+        </trim>
+    </insert>
+    <update id="updateMsgDead"> update t_local_msg set status = 2 where msg_id = #{msgId} and business_id = #{businessId}</update>
+    <update id="updateMsgSend">update t_local_msg set status = 1 where msg_id = #{msgId} and business_id = #{businessId}</update>
+    <update id="updateMsgRelay">
+        update t_local_msg set retry_count = retry_count + 1,next_retry_time = #{nextRelayTime}
+        where msg_id = #{msgId} and business_id = #{businessId}
+    </update>
+    <select id="selectPendingMsg" resultType="com.suddenfix.pay.domain.pojo.Msg">
+        select msg_id,business_id,topic,payload,status,next_retry_time,retry_count from t_local_msg
+        where status = 0
+          and retry_count &lt; #{maxRetryCount}
+          and next_retry_time &lt;= #{date}
+        order by create_time
+        limit #{batchSize}
+    </select>
+
+
+</mapper>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.product.mapper.StockFlowMapper">
+    <insert id="insert">
+        insert into t_stock_flow (
+            flow_id, product_id, order_id, business_type, change_type, change_amount,
+            before_stock, after_stock, trace_id, operator, remark, create_time
+        ) values (
+            #{flowId}, #{productId}, #{orderId}, #{businessType}, #{changeType}, #{changeAmount},
+            #{beforeStock}, #{afterStock}, #{traceId}, #{operator}, #{remark}, #{createTime}
+        )
+    </insert>
+</mapper>

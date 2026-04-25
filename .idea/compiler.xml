@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="suddenfix-product" />
+        <module name="suddenfix-user" />
+        <module name="suddenfix-gateway" />
+        <module name="suddenfix-pay" />
+        <module name="suddenfix-order" />
+        <module name="suddenfix-shipping" />
+        <module name="suddenfix-common" />
+      </profile>
+    </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="suddenfix-agent" target="17" />
+    </bytecodeTargetLevel>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="suddenfix-backend" options="-parameters" />
+      <module name="suddenfix-common" options="-parameters" />
+      <module name="suddenfix-gateway" options="-parameters" />
+      <module name="suddenfix-order" options="-parameters" />
+      <module name="suddenfix-pay" options="-parameters" />
+      <module name="suddenfix-product" options="-parameters" />
+      <module name="suddenfix-shipping" options="-parameters" />
+      <module name="suddenfix-user" options="-parameters" />
+    </option>
+  </component>
+</project>

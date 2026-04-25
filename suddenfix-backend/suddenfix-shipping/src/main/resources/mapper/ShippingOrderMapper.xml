@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.suddenfix.shipping.mapper.ShippingOrderMapper">
+    <select id="selectByOrderId" resultType="com.suddenfix.shipping.domain.pojo.ShippingOrder">
+        select order_id,order_no,user_id,pay_amount,status,receiver_name,receiver_phone,receiver_address,create_time,ship_time,finish_time
+        from t_order
+        where order_id = #{orderId}
+    </select>
+
+    <select id="selectPendingDeliveryOrders" resultType="com.suddenfix.shipping.domain.pojo.ShippingOrder">
+        select order_id,order_no,user_id,pay_amount,status,receiver_name,receiver_phone,receiver_address,create_time,ship_time,finish_time
+        from t_order
+        where status = 20
+        order by create_time desc
+        limit #{limit}
+    </select>
+
+    <update id="updateToShipped">
+        update t_order
+        set status = 30,
+            ship_time = now(),
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 20
+    </update>
+
+    <update id="updateToCompleted">
+        update t_order
+        set status = 40,
+            finish_time = now(),
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 30
+    </update>
+</mapper>

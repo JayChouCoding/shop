@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.order.mapper.OrderItemMapper">
+
+    <insert id="insertOrderItemBatch">
+        insert into t_order_item (
+            item_id, order_id, user_id, product_id, product_name, price, quantity,
+            total_amount, discount_amount, real_pay_amount, create_time, update_time
+        )
+        values
+        <foreach collection="orderItemList" item="orderItem" separator=",">
+            (
+                #{orderItem.itemId},
+                #{orderItem.orderId},
+                #{orderItem.userId},
+                #{orderItem.productId},
+                #{orderItem.productName},
+                #{orderItem.price},
+                #{orderItem.quantity},
+                #{orderItem.totalAmount},
+                #{orderItem.discountAmount},
+                #{orderItem.realPayAmount},
+                now(),
+                now()
+            )
+        </foreach>
+    </insert>
+    <select id="selectByOrderId" resultType="com.suddenfix.order.domain.pojo.OrderItem">
+        select item_id,order_id,user_id,product_id,product_name,price,quantity,total_amount,discount_amount,real_pay_amount,
+               create_time,update_time
+        from t_order_item
+        where order_id = #{orderId}
+    </select>
+
+    <select id="selectByOrderIdAndUserId" resultType="com.suddenfix.order.domain.pojo.OrderItem">
+        select * from t_order_item where order_id = #{orderId} and user_id = #{userId}
+    </select>
+</mapper>

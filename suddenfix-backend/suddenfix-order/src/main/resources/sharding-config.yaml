@@ -1,0 +1,82 @@
+databaseName: suddenfix_order
+
+# 1. 数据源配置
+dataSources:
+  ds0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_order_0?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_order_1?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+rules:
+  - !SHARDING
+    tables:
+      # 1. 订单主表
+      t_order:
+        actualDataNodes: ds0.t_order_${[0,2,4,6,8,10,12,14]}, ds1.t_order_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: table_inline_alg
+
+      # 2. 订单详情表 (必须与主表分片键保持一致，确保同库同表)
+      t_order_item:
+        actualDataNodes: ds0.t_order_item_${[0,2,4,6,8,10,12,14]}, ds1.t_order_item_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: order_id # 修正：Standard 只能选一列，选 order_id 保证和主表在一起
+            shardingAlgorithmName: db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: order_item_table_inline_alg
+
+      # 3. 本地消息表
+      t_local_msg:
+        actualDataNodes: ds0.t_local_msg_0, ds1.t_local_msg_1
+        databaseStrategy:
+          standard:
+            shardingColumn: business_id
+            shardingAlgorithmName: msg_db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: business_id
+            shardingAlgorithmName: msg_table_inline_alg
+
+    shardingAlgorithms:
+      # 修正后的订单库分片：使用 INLINE 确保与手动配置的物理节点匹配
+      db_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.floorMod(Long.valueOf(order_id), 2)}
+
+      # 修正后的订单表分片
+      table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_order_${Math.floorMod(Long.valueOf(order_id), 16)}
+      order_item_table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_order_item_${Math.floorMod(Long.valueOf(order_id), 16)}
+
+      # 本地消息表保持不变 (因为你已经正确使用了 INLINE)
+      msg_db_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.floorMod(Long.valueOf(business_id), 2)}
+      msg_table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_local_msg_${Math.floorMod(Long.valueOf(business_id), 2)}

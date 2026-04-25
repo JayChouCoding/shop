@@ -1,0 +1,53 @@
+databaseName: suddenfix_shipping
+
+dataSources:
+  ds0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_order_0?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_order_1?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+rules:
+  - !SHARDING
+    tables:
+      t_order:
+        actualDataNodes: ds0.t_order_${[0,2,4,6,8,10,12,14]}, ds1.t_order_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: order_table_inline_alg
+      t_shipping:
+        actualDataNodes: ds0.t_shipping_${[0,2,4,6,8,10,12,14]}, ds1.t_shipping_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: db_inline_alg
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: shipping_table_inline_alg
+
+    shardingAlgorithms:
+      db_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.floorMod(Long.valueOf(order_id), 2)}
+      order_table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_order_${Math.floorMod(Long.valueOf(order_id), 16)}
+      shipping_table_inline_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_shipping_${Math.floorMod(Long.valueOf(order_id), 16)}

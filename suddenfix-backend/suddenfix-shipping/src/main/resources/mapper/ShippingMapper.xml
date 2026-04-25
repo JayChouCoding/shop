@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.suddenfix.shipping.mapper.ShippingMapper">
+    <select id="selectByOrderId" resultType="com.suddenfix.shipping.domain.pojo.ShippingRecord">
+        select shipping_id,order_id,user_id,logistics_no,express_company,shipping_status,receiver_name,receiver_phone,
+               receiver_address,ship_time,sign_time,remark,create_time,update_time
+        from t_shipping
+        where order_id = #{orderId}
+    </select>
+
+    <insert id="insert">
+        insert into t_shipping (shipping_id,order_id,user_id,logistics_no,express_company,shipping_status,receiver_name,
+                                receiver_phone,receiver_address,ship_time,remark)
+        values (#{shippingId},#{orderId},#{userId},#{logisticsNo},#{expressCompany},#{shippingStatus},#{receiverName},
+                #{receiverPhone},#{receiverAddress},#{shipTime},#{remark})
+    </insert>
+
+    <update id="updateToShipped">
+        update t_shipping
+        set logistics_no = #{logisticsNo},
+            express_company = #{expressCompany},
+            shipping_status = 1,
+            ship_time = now(),
+            remark = #{remark},
+            update_time = now()
+        where order_id = #{orderId}
+    </update>
+
+    <update id="updateToCompleted">
+        update t_shipping
+        set shipping_status = 3,
+            sign_time = now(),
+            update_time = now()
+        where order_id = #{orderId}
+          and shipping_status in (1,2)
+    </update>
+</mapper>

@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.product.mapper.ProductMapper">
+    <resultMap id="BaseResultMap" type="com.suddenfix.product.domain.pojo.Product">
+        <id column="id" property="id" />
+        <result column="name" property="name" />
+        <result column="category_id" property="categoryId" />
+        <result column="main_image" property="mainImage" />
+        <result column="price" property="price" />
+        <result column="stock" property="stock" />
+        <result column="description" property="description" />
+        <result column="status" property="status" />
+        <result column="start_time" property="startTime" />
+        <result column="end_time" property="endTime" />
+        <result column="create_time" property="createTime" />
+        <result column="update_time" property="updateTime" />
+    </resultMap>
+
+    <sql id="ProductDocColumns">
+        id,
+        name,
+        category_id as categoryId,
+        main_image as mainImage,
+        price,
+        stock,
+        description,
+        status,
+        0 as sales,
+        create_time as createTime
+    </sql>
+
+    <sql id="SearchWhere">
+        ifnull(status, 1) = 1
+        <if test="keyword != null and keyword != ''">
+            and (name like concat('%', #{keyword}, '%')
+            or description like concat('%', #{keyword}, '%'))
+        </if>
+        <if test="minPrice != null">
+            and price <![CDATA[>=]]> #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            and price <![CDATA[<=]]> #{maxPrice}
+        </if>
+    </sql>
+
+    <insert id="insertProduct" useGeneratedKeys="true" keyProperty="id">
+        insert into t_product
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="name != null and name != ''">name,</if>
+            <if test="categoryId != null">category_id,</if>
+            <if test="mainImage != null and mainImage != ''">main_image,</if>
+            <if test="price != null">price,</if>
+            <if test="stock != null">stock,</if>
+            <if test="description != null and description != ''">description,</if>
+            <if test="status != null">status,</if>
+            <if test="startTime != null">start_time,</if>
+            <if test="endTime != null">end_time,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+        </trim>
+        <trim prefix=" values (" suffix=")" suffixOverrides=",">
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="categoryId != null">#{categoryId},</if>
+            <if test="mainImage != null and mainImage != ''">#{mainImage},</if>
+            <if test="price != null">#{price},</if>
+            <if test="stock != null">#{stock},</if>
+            <if test="description != null and description != ''">#{description},</if>
+            <if test="status != null">#{status},</if>
+            <if test="startTime != null">#{startTime},</if>
+            <if test="endTime != null">#{endTime},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+        </trim>
+    </insert>
+    <update id="updateProduct">
+        update t_product
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="categoryId != null">category_id = #{categoryId},</if>
+            <if test="mainImage != null and mainImage != ''">main_image = #{mainImage},</if>
+            <if test="price != null">price = #{price},</if>
+            <if test="stock != null">stock = #{stock},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="startTime != null">start_time = #{startTime},</if>
+            <if test="endTime != null">end_time = #{endTime},</if>
+            update_time = now()
+        </set>
+        where id = #{id}
+    </update>
+    <update id="deduction">
+        update t_product
+        set stock = stock - #{deductionStock},
+            update_time = now()
+        where id = #{productId}
+          and ifnull(status, 1) = 1
+          and stock >= #{deductionStock}
+    </update>
+    <update id="restoreStock">
+        UPDATE t_product
+        SET stock = stock + #{quantity},
+            update_time = now()
+        WHERE id = #{productId}
+          AND ifnull(status, 1) = 1
+    </update>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        select id,name,category_id,main_image,price,stock,description,status,start_time,end_time,create_time,update_time
+        from t_product where id = #{id} and ifnull(status, 1) = 1
+    </select>
+
+    <select id="selectByIds" resultMap="BaseResultMap">
+        select id,name,category_id,main_image,price,stock,description,status,start_time,end_time,create_time,update_time
+        from t_product
+        where id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="searchProducts" resultType="com.suddenfix.product.domain.pojo.ProductDoc">
+        select
+        <include refid="ProductDocColumns"/>
+        from t_product
+        where
+        <include refid="SearchWhere"/>
+        <choose>
+            <when test="latestFirst">
+                order by create_time desc, id desc
+            </when>
+            <otherwise>
+                order by id desc, create_time desc
+            </otherwise>
+        </choose>
+        limit #{size} offset #{offset}
+    </select>
+
+    <select id="countSearchProducts" resultType="java.lang.Long">
+        select count(1)
+        from t_product
+        where
+        <include refid="SearchWhere"/>
+    </select>
+
+    <select id="selectRecommendProducts" resultType="com.suddenfix.product.domain.pojo.ProductDoc">
+        select
+        <include refid="ProductDocColumns"/>
+        from t_product
+        where ifnull(status, 1) = 1
+          and category_id = #{categoryId}
+          and id != #{excludeId}
+        order by create_time desc, id desc
+        limit #{size}
+    </select>
+</mapper>

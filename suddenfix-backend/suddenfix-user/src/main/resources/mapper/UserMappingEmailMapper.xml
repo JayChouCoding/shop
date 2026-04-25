@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.user.mapper.UserMappingEmailMapper">
+    <insert id="insertMapping">
+        insert into t_user_mapping_email (id,email) values (#{id},#{email})
+    </insert>
+
+    <delete id="deleteMapping">
+        delete from t_user_mapping_email where email = #{email}
+    </delete>
+
+    <select id="selectUserIdByEmail" resultType="java.lang.Long">
+        select id from t_user_mapping_email where email = #{email}
+    </select>
+</mapper>

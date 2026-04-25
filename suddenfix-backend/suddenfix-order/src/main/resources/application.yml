@@ -1,0 +1,61 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: suddenfix-order
+  datasource:
+    # 如果使用 ShardingSphere
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    url: jdbc:shardingsphere:classpath:sharding-config.yaml
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+  rabbitmq:
+    publisher-confirm-type: correlated
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+        prefetch: 1
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 1
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  shardingsphere:
+    mode:
+      type: Standalone
+
+
+mybatis:
+  mapper-locations: classpath*:mapper/*.xml
+  type-aliases-package: com.suddenfix.order.domain.pojo
+  configuration:
+    map-underscore-to-camel-case: true
+
+thread:
+  core-size: 10
+  max-size: 50
+  keep-alive: 60
+  queue-capacity: 200
+
+suddenfix:
+  jwt:
+    secret: SuddenFix-MicroService-Secret-Key-123456
+    expiration: 604800000

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.user.mapper.UserAuthMapper">
+    <insert id="insertUser">
+        insert into t_user
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="id != null">id,</if>
+            <if test="username != null and username != ''">username,</if>
+            <if test="password != null and password != ''">password,</if>
+            <if test="email != null and email != ''">email,</if>
+            <if test="phone != null and phone != ''">phone,</if>
+            <if test="nickname != null and nickname != ''">nickname,</if>
+            <if test="avatar != null and avatar != ''">avatar,</if>
+            <if test="status != null">status,</if>
+            <if test="role != null">role,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateTime != null">update_time,</if>
+        </trim>
+        <trim prefix=" values (" suffix=")" suffixOverrides=",">
+            <if test="id != null">#{id},</if>
+            <if test="username != null and username != ''">#{username},</if>
+            <if test="password != null and password != ''">#{password},</if>
+            <if test="email != null and email != ''">#{email},</if>
+            <if test="phone != null and phone != ''">#{phone},</if>
+            <if test="nickname != null and nickname != ''">#{nickname},</if>
+            <if test="avatar != null and avatar != ''">#{avatar},</if>
+            <if test="status != null">#{status},</if>
+            <if test="role != null">#{role},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+        </trim>
+    </insert>
+
+    <update id="updateAccountStatus">
+        update t_user
+        set username = concat(#{username}, '_cancel_', UNIX_TIMESTAMP()),
+            phone = concat(#{phone}, '_cancel_', UNIX_TIMESTAMP()),
+            email = concat(#{email}, '_cancel_', UNIX_TIMESTAMP()),
+            status = 0,
+            update_time = now()
+        where id = #{id}
+    </update>
+
+    <select id="selectUserName" resultType="com.suddenfix.user.domain.pojo.User">
+        select id,username,password,email,phone,nickname,avatar,status,role,create_time,update_time
+        from t_user
+        where id = #{id}
+    </select>
+
+    <select id="selectAllNames" resultType="java.lang.String">
+        select username from t_user
+    </select>
+</mapper>

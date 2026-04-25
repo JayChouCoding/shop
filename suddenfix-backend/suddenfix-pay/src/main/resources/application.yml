@@ -1,0 +1,68 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: suddenfix-pay
+  datasource:
+    # 关键：指定驱动类为 ShardingSphereDriver
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    # 关键：URL 指向 classpath 下的纯分片配置文件
+    url: jdbc:shardingsphere:classpath:sharding-config.yaml
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+        prefetch: 1
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 2
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  shardingsphere:
+    mode:
+      type: Standalone
+
+mybatis:
+  mapper-locations: classpath*:mapper/*.xml
+  type-aliases-package: com.suddenfix.pay.domain.pojo
+  configuration:
+    map-underscore-to-camel-case: true
+
+thread:
+  core-size: 10
+  max-size: 50
+  keep-alive: 60
+  queue-capacity: 200
+
+suddenfix:
+  jwt:
+    secret: SuddenFix-MicroService-Secret-Key-123456
+    expiration: 604800000
+
+alipay:
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  app-id: 9021000162644934
+  merchant-private-key: MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCFTVWj460+8cKEmoK/q7SCoYn70Noi7UBey57B/V7JYnuinovf7Xxd9hNMMJqqOcI6IFJxGFTqz1nO2Q5rL53OFNFQ1eNnbOrEocM8/cnp1a55KT/Hp/ZZUIJolrGPC0022N35fCH8SkrB0yTgU+JTxkdvlXtLiEf2xeHIED8V+wKHK5drJLse5yFaudG9B7UT2B8qhqxpwmwwT58Izh7P74mP1DjTZq+/3SG0dg6BX3pDq64rvxGcTrYKE7unqvHTZIV49qBmTEFgKUxfiIqDgWI50K39PU+ekjJmkJYa6GJYzCq9QXdYY91J1Nabb4WDtzg9dV/GYX+PHsURUrObAgMBAAECggEACKxHbipaE0ZXiZkj+KSLUhSAjcnA55TYI1LMOYLqr9+ge6wlHaSt+s8P4l0nMvwfDvkbZBBZNg3XogWtUnv+oHHqTIAeE5SakcCUm1tHz9b/SxLL+4mKFbWPRo7Hbq8ljvP9PUY+T9PlmUbLl2zdxOWZsEDhjMCJLh0h24pzEFLzc0Il1cqOoth4UyUKi4D2JiXjeoH/FnJctTpDXbs1YJdsbIIoiTnwKHtiwIShQyrpj1RN5hjG3eYSZpZxhEILF/PaBOoAEeZCnTXVl+ZiVd94d2TuQWQ9s3HX8eNmNzfjPkrTkYaRawVrixdImZoKHVXieTOz3OWalQQ8htf4AQKBgQD4s1Gq3OPd7JJsRTlLQmGRW9VEuFTZhVktCfcLV1KzpGca+tNmMHJkXaBLXgnbEfmy1YhsJ60oMVrxaqUzeFj4C1OoM+HKXnTz6ccp65ob3yKSjDNmWpKfh6kQba2SChweVNOtEOhgbsS2uYVOM3Njdf1LplOwzsAZSjhz1VR5GwKBgQCJNu/zw4sLdhtcfeKlL4L6d2iUTGcKlJggb2nVA7LyYvWjqMfYMmpdfWbo1b1Dxwq37RCxTSe1JQMeo7QrUyEGJkSeTfc9D6BHApqkRRp8ULCP3cz4fJK6MdW3mhEeUzF2E3TG5dsS+YqVe3zwlAOYPreIviU4xwg3CtqyjOTXgQKBgDTeigH0q0xGOmph3Ogu2Gb6SsAtH3yOaIK2l5oFmkMuM+z8XWxf6DGF5cmf2CCGFbr6weGcHadptpeTwELM1r0ES2h6fwlyQxKHJBu5Ri2epc7ZlyOvJXRcdohTiI5/L7MS/VzRN1UotxDRJ5GURndiYdJvLWNs0FGQAag+NZL5AoGAdCMpqZsCnyrSMdDi+oliRPi4bXzVYiEvOZTTcNZ2qa2U13bN33GckZDIf54ZWbqomdBvZoI1b57qKw7IOjtcIkZVod+/udD2CeRsW0maB0qMhthm2pMl5a60g3hFsPMdVCFXn9mBOWg5IhipQT8mY8ABvB2kh4/+pgfr32BdeQECgYEAxk5ux84lj9qdGu99/J4a8Sg6aDVKzi/BqeGrbyExglqCqxAh0hCA5jOpHUXR7r0TQHlZM7xBz1ylTLRyekOcWT0XTcihr9HzYTP2q7fDXsgPnaVEH3ZB3+X/GoAuTaF4GrtV/aZN3evWLyjGN8yGcHtM21RaITUbkQ7WbA0onrw=
+  alipay-public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkCHRoUyKEGmZyvMe4lDBk39GcLy6txAZ+7QEojAAzSxntxz2pirKzpC5uL30Fhvq2gyc5pnrG2lXVdgQiycr10Q4p1mSqMhTubtTfjo7lkEu0vWkqMdJXKvSNXnzG9YZvnRP75rbCuMxr3btyELClve34ddTV7O0WzBKeYPWLOkkCaRaTj4ieFs7g0dnqT2X/g2TNp8MaTWMuqJ5KNZ8mEvP2614rypp7jbv/wjvf131iibkJzLBx6sH8OLpZLFfH6jM3FqTKsz7Y8hjjWKejivCevNelhK8tJ+kAUBgxh4a3DrAOgdz/79X45/xkmjm8yWbeLbK4mLEqdUsO7MvrwIDAQAB
+  notify-url: http://localhost:8080/api/pay/alipay/notify
+  return-url: http://localhost:8080/api/pay/success

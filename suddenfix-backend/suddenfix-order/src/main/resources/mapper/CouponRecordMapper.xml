@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.order.mapper.CouponRecordMapper">
+
+
+    <insert id="insertCouponRecord">
+        insert into coupon_claim_record
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="id != null">
+                id,
+            </if>
+            <if test="couponId != null">
+                coupon_id,
+            </if>
+            <if test="userId != null">
+                user_id,
+            </if>
+            <if test="segmentIndex != null">
+                segment_index,
+            </if>
+            <if test="couponToken != null and couponToken != ''">
+                coupon_token,
+            </if>
+            <if test="status != null">
+                status,
+            </if>
+            <if test="orderId != null">
+                order_id,
+            </if>
+            <if test="usedTime != null">
+                used_time,
+            </if>
+            <if test="createTime != null">
+                create_time,
+            </if>
+            <if test="updateTime != null">
+                update_time,
+            </if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="id != null">
+                #{id},
+            </if>
+            <if test="couponId != null">
+                #{couponId},
+            </if>
+            <if test="userId != null">
+                #{userId},
+            </if>
+            <if test="segmentIndex != null">
+                #{segmentIndex},
+            </if>
+            <if test="couponToken != null and couponToken != ''">
+                #{couponToken},
+            </if>
+            <if test="status != null">
+                #{status},
+            </if>
+            <if test="orderId != null">
+                #{orderId},
+            </if>
+            <if test="usedTime != null">
+                #{usedTime},
+            </if>
+            <if test="createTime != null">
+                #{createTime},
+            </if>
+            <if test="updateTime != null">
+                #{updateTime},
+            </if>
+        </trim>
+    </insert>
+
+    <update id="bindOrderToCoupon">
+        update coupon_claim_record
+        set order_id = #{orderId},
+            update_time = now()
+        where user_id = #{userId}
+          and coupon_token = #{couponToken}
+          and status = 0
+          and order_id is null
+    </update>
+
+    <update id="markCouponUsedByOrderId">
+        update coupon_claim_record
+        set status = 1,
+            used_time = now(),
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 0
+    </update>
+
+    <update id="rollbackCouponUsedByOrderId">
+        update coupon_claim_record
+        set status = 0,
+            used_time = null,
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 1
+    </update>
+
+    <update id="clearCouponBindingByOrderId">
+        update coupon_claim_record
+        set order_id = null,
+            update_time = now()
+        where order_id = #{orderId}
+          and status = 0
+    </update>
+
+    <select id="selectByOrderId" resultType="com.suddenfix.order.domain.pojo.CouponRecord">
+        select id,coupon_id,user_id,segment_index,coupon_token,status,order_id,used_time,create_time,update_time
+        from coupon_claim_record
+        where order_id = #{orderId}
+        limit 1
+    </select>
+</mapper>

@@ -1,0 +1,134 @@
+databaseName: suddenfix_user
+
+# 1. 数据源配置
+dataSources:
+  ds0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_user_0?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/suddenfix_user_1?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+# 2. 规则编排
+rules:
+  - !SHARDING
+    tables:
+      # ================= 用户主表 =================
+      t_user:
+        actualDataNodes: ds0.t_user_${[0,2,4,6,8,10,12,14]}, ds1.t_user_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: id
+            shardingAlgorithmName: db_inline_id_alg
+        tableStrategy:
+          standard:
+            shardingColumn: id
+            shardingAlgorithmName: table_inline_user_alg
+        keyGenerateStrategy:
+          column: id
+          keyGeneratorName: snowflake
+
+      # ================= id和username映射表 =================
+      t_user_mapping_username: # 🚨 这里原来是 t_user_mapping，必须补全为 t_user_mapping_username
+        actualDataNodes: ds0.t_user_mapping_username_${[0,2,4,6,8,10,12,14]}, ds1.t_user_mapping_username_${[1,3,5,7,9,11,13,15]} # 🚨 这里的节点也必须带 _username
+        databaseStrategy:
+          standard:
+            shardingColumn: username
+            shardingAlgorithmName: db_inline_username_alg
+        tableStrategy:
+          standard:
+            shardingColumn: username
+            shardingAlgorithmName: table_inline_mapping_username_alg
+
+      # ================= id和email映射表 =================
+      t_user_mapping_email:
+        actualDataNodes: ds0.t_user_mapping_email_${[0,2,4,6,8,10,12,14]}, ds1.t_user_mapping_email_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: email
+            shardingAlgorithmName: db_inline_email_alg
+        tableStrategy:
+          standard:
+            shardingColumn: email
+            shardingAlgorithmName: table_inline_mapping_email_alg
+
+      # ================= id和phone映射表 =================
+      t_user_mapping_phone:
+        actualDataNodes: ds0.t_user_mapping_phone_${[0,2,4,6,8,10,12,14]}, ds1.t_user_mapping_phone_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: phone
+            shardingAlgorithmName: db_inline_phone_alg
+        tableStrategy:
+          standard:
+            shardingColumn: phone
+            shardingAlgorithmName: table_inline_mapping_phone_alg
+
+      # ================= 收货地址表 =================
+      t_user_address:
+        actualDataNodes: ds0.t_user_address_${[0,2,4,6,8,10,12,14]}, ds1.t_user_address_${[1,3,5,7,9,11,13,15]}
+        databaseStrategy:
+          standard:
+            shardingColumn: user_id
+            shardingAlgorithmName: db_inline_user_id_alg
+        tableStrategy:
+          standard:
+            shardingColumn: user_id
+            shardingAlgorithmName: table_inline_address_alg
+
+    # ================= 分片算法定义 =================
+    shardingAlgorithms:
+      # --- 库级分片算法 (结果为 0 或 1) ---
+      db_inline_id_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${id % 2}
+      db_inline_user_id_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${user_id % 2}
+      db_inline_username_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.abs(username.hashCode()) % 2}
+      db_inline_email_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.abs(email.hashCode()) % 2}
+      db_inline_phone_alg:
+        type: INLINE
+        props:
+          algorithm-expression: ds${Math.abs(phone.hashCode()) % 2}
+
+      # --- 表级分片算法 (结果为 0 到 15) ---
+      table_inline_user_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_user_${id % 16}
+      table_inline_address_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_user_address_${user_id % 16}
+      table_inline_mapping_username_alg:
+        type: INLINE
+        props:
+          # 🚨 这里原来是 t_user_mapping_xxx，必须补全为 t_user_mapping_username_xxx
+          algorithm-expression: t_user_mapping_username_${Math.abs(username.hashCode()) % 16}
+      table_inline_mapping_email_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_user_mapping_email_${Math.abs(email.hashCode()) % 16}
+      table_inline_mapping_phone_alg:
+        type: INLINE
+        props:
+          algorithm-expression: t_user_mapping_phone_${Math.abs(phone.hashCode()) % 16}
+
+    keyGenerators:
+      snowflake:
+        type: SNOWFLAKE

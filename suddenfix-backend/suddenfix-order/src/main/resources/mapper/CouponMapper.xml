@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.suddenfix.order.mapper.CouponMapper">
+
+
+    <insert id="insertCoupon" useGeneratedKeys="true" keyProperty="id">
+        insert into coupon
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="name != null and name != ''">name,</if>
+            <if test="amount != null">amount,</if>
+            <if test="minPoint != null">min_point,</if>
+            <if test="totalStock != null">total_stock,</if>
+            <if test="segmentCount != null">segment_count,</if>
+            <if test="status != null">status,</if>
+            <if test="startTime != null">start_time,</if>
+            <if test="endTime != null">end_time,</if>
+            create_time,
+            is_deleted
+        </trim>
+
+        <trim prefix=" values (" suffix=")" suffixOverrides=",">
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="amount != null">#{amount},</if>
+            <if test="minPoint != null">#{minPoint},</if>
+            <if test="totalStock != null">#{totalStock},</if>
+            <if test="segmentCount != null">#{segmentCount},</if>
+            <if test="status != null">#{status},</if>
+            <if test="startTime != null">#{startTime},</if>
+            <if test="endTime != null">#{endTime},</if>
+            now(),
+            0
+        </trim>
+    </insert>
+    <select id="selectCoupon" resultType="com.suddenfix.order.domain.pojo.Coupon">
+        select id,name,amount,min_point,total_stock,segment_count,status,start_time,
+               end_time,create_time,update_time
+        from coupon
+        where id = #{couponId} and is_deleted = 0
+    </select>
+</mapper>
