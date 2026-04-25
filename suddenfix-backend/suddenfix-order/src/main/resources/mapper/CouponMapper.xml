@@ -38,4 +38,15 @@
         from coupon
         where id = #{couponId} and is_deleted = 0
     </select>
+
+    <select id="selectActiveCoupons" resultType="com.suddenfix.order.domain.pojo.Coupon">
+        select id,name,amount,min_point,total_stock,segment_count,status,start_time,
+               end_time,create_time,update_time
+        from coupon
+        where is_deleted = 0
+          and status = 1
+          and start_time <![CDATA[ <= ]]> #{now}
+          and end_time <![CDATA[ >= ]]> #{now}
+        order by amount desc, create_time desc
+    </select>
 </mapper>

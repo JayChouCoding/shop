@@ -2,16 +2,27 @@ package com.suddenfix.order.service.impl;
 
 import cn.hutool.json.JSONUtil;
 import com.suddenfix.common.constants.RabbitEventConstants;
+import com.suddenfix.common.dto.CouponRollbackMessage;
 import com.suddenfix.common.dto.OrderCreateMessage;
+import com.suddenfix.common.dto.PayRollbackMessage;
 import com.suddenfix.common.dto.ProductSkuDTO;
 import com.suddenfix.common.enums.*;
+import com.suddenfix.common.exception.ServiceException;
 import com.suddenfix.common.result.Result;
 import com.suddenfix.common.utils.GeneIdGenerator;
 import com.suddenfix.order.domain.dto.OrderDTO;
+import com.suddenfix.order.domain.pojo.Coupon;
+import com.suddenfix.order.domain.pojo.CouponRecord;
+import com.suddenfix.order.domain.pojo.Msg;
 import com.suddenfix.order.domain.pojo.Order;
 import com.suddenfix.order.domain.pojo.OrderItem;
+import com.suddenfix.order.domain.pojo.OrderWithProduct;
+import com.suddenfix.order.domain.vo.OrderCouponVO;
 import com.suddenfix.order.domain.vo.OrderViewVO;
 import com.suddenfix.order.feign.ProductFeign;
+import com.suddenfix.order.mapper.CouponMapper;
+import com.suddenfix.order.mapper.CouponRecordMapper;
+import com.suddenfix.order.mapper.MsgMapper;
 import com.suddenfix.order.mapper.OrderItemMapper;
 import com.suddenfix.order.mapper.OrderMapper;
 import com.suddenfix.order.service.IOrderService;
@@ -22,6 +33,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.math.BigDecimal;
 import java.util.*;
 import static com.suddenfix.common.enums.MsgTopic.TOPIC_ON_CREATE;
 import static com.suddenfix.common.enums.RedisPreMessage.GOODS_IS_EXIST;
@@ -35,6 +47,9 @@ public class OrderServiceImpl implements IOrderService {
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
+    private final CouponMapper couponMapper;
+    private final CouponRecordMapper couponRecordMapper;
+    private final MsgMapper msgMapper;
     private final ProductFeign productFeign;
     private final RedisTemplate<String,Object> redisTemplate;
     private final RabbitTemplate rabbitTemplate;
@@ -190,5 +205,132 @@ public class OrderServiceImpl implements IOrderService {
                 .order(order)
                 .items(items)
                 .build());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Result<Void> cancelUserOrder(Long userId, Long orderId) {
+        Order order = requireOwnedOrder(userId, orderId);
+        if (!OrderStatic.PENDING_PAYMENT.getCode().equals(order.getStatus())) {
+            throw new ServiceException("当前订单不支持取消，只有待支付订单可以直接取消");
+        }
+        int updated = orderMapper.cancelOrder(userId, orderId);
+        if (updated <= 0) {
+            throw new ServiceException("订单取消失败，请刷新后重试");
+        }
+
+        restoreStockForClosedOrder(order);
+        rollbackCouponIfNeeded(userId, orderId);
+        return Result.success();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Result<Void> refundUserOrder(Long userId, Long orderId) {
+        Order order = requireOwnedOrder(userId, orderId);
+        if (!List.of(OrderStatic.PAID.getCode(), OrderStatic.SHIPPED.getCode(), OrderStatic.COMPLETED.getCode())
+                .contains(order.getStatus())) {
+            throw new ServiceException("当前订单状态暂不支持申请退货退款");
+        }
+        if (order.getOutTradeNo() == null || order.getOutTradeNo().isBlank()) {
+            throw new ServiceException("订单缺少支付流水号，暂时无法发起退款");
+        }
+
+        int updated = orderMapper.closePaidOrder(userId, orderId);
+        if (updated <= 0) {
+            throw new ServiceException("退款申请提交失败，请刷新后重试");
+        }
+
+        restoreStockForClosedOrder(order);
+        insertLocalMessage(
+                userId,
+                MsgTopic.TOPIC_PAY_REFUND.getTopic(),
+                JSONUtil.toJsonStr(PayRollbackMessage.builder()
+                        .orderId(orderId)
+                        .outTradeNo(order.getOutTradeNo())
+                        .refundAmount(order.getPayAmount())
+                        .refundNo("REFUND_" + orderId)
+                        .build())
+        );
+        rollbackCouponIfNeeded(userId, orderId);
+        return Result.success();
+    }
+
+    private Order requireOwnedOrder(Long userId, Long orderId) {
+        Order order = orderMapper.selectByOrderId(orderId);
+        if (order == null || !Objects.equals(order.getUserId(), userId)) {
+            throw new ServiceException("订单不存在");
+        }
+        return order;
+    }
+
+    private void restoreStockForClosedOrder(Order order) {
+        List<OrderItem> items = orderItemMapper.selectByOrderIdAndUserId(order.getOrderId(), order.getUserId());
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        for (OrderItem item : items) {
+            redisTemplate.opsForValue().increment(GOODS_PRE_DEDUCTION.getValue() + item.getProductId(), item.getQuantity());
+            redisTemplate.opsForValue().set(
+                    GOODS_IS_EXIST.getValue() + item.getProductId(),
+                    1,
+                    RedisExpirationTime.EXPIRATION_TIME.getTimeout()
+            );
+        }
+
+        rabbitTemplate.convertAndSend(
+                RabbitEventConstants.EVENT_EXCHANGE,
+                MsgTopic.TOPIC_RESTORE_STOCK.getTopic(),
+                JSONUtil.toJsonStr(OrderWithProduct.builder()
+                        .orderId(order.getOrderId())
+                        .orderNo(order.getOrderNo())
+                        .userId(order.getUserId())
+                        .payAmount(order.getPayAmount())
+                        .status(order.getStatus())
+                        .payChannel(order.getPayChannel())
+                        .productIds(items.stream().map(OrderItem::getProductId).toList())
+                        .productQuantities(items.stream().map(OrderItem::getQuantity).toList())
+                        .build())
+        );
+    }
+
+    private void rollbackCouponIfNeeded(Long userId, Long orderId) {
+        CouponRecord couponRecord = couponRecordMapper.selectByOrderId(orderId);
+        if (couponRecord == null) {
+            return;
+        }
+
+        couponRecordMapper.rollbackCouponUsedByOrderId(orderId);
+        couponRecordMapper.clearCouponBindingByOrderId(orderId);
+        if (couponRecord.getCouponId() != null && couponRecord.getCouponToken() != null && couponRecord.getSegmentIndex() != null) {
+            insertLocalMessage(
+                    userId,
+                    MsgTopic.TOPIC_COUPON_ROLLBACK.getTopic(),
+                    JSONUtil.toJsonStr(CouponRollbackMessage.builder()
+                            .orderId(orderId)
+                            .userId(userId)
+                            .couponId(couponRecord.getCouponId())
+                            .segment(couponRecord.getSegmentIndex())
+                            .couponToken(couponRecord.getCouponToken())
+                            .build())
+            );
+        }
+    }
+
+    private void insertLocalMessage(Long userId, String topic, String payload) {
+        Msg msg = Msg.builder()
+                .msgId(GeneIdGenerator.generatorId(userId))
+                .businessId(GeneIdGenerator.generatorId(userId))
+                .topic(topic)
+                .payload(payload)
+                .status(MsgStatus.PENDING_SENDING.getStatus())
+                .retryCount(0)
+                .nextRetryTime(new Date())
+                .build();
+        int insertRow = msgMapper.insertMsg(msg);
+        if (insertRow <= 0) {
+            throw new ServiceException("消息写入失败，请稍后重试");
+        }
     }
 }

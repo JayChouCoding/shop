@@ -1,6 +1,8 @@
 package com.suddenfix.order.listener;
 
 import cn.hutool.json.JSONUtil;
+import com.suddenfix.common.utils.GeneIdGenerator;
+import com.suddenfix.order.config.CouponRabbitMQConfig;
 import com.suddenfix.order.domain.pojo.Coupon;
 import com.suddenfix.order.domain.pojo.CouponRecord;
 import com.suddenfix.order.domain.vo.CouponPreheatVO;
@@ -28,6 +30,7 @@ public class CouponRecordListener {
             Coupon coupon = couponMapper.selectCoupon(couponPreheat.getCouponId());
 
             CouponRecord couponRecord = CouponRecord.builder()
+                    .id(GeneIdGenerator.generatorId(couponPreheat.getUserId()))
                     .couponId(coupon.getId())
                     .userId(couponPreheat.getUserId())
                     .segmentIndex(couponPreheat.getSegment())

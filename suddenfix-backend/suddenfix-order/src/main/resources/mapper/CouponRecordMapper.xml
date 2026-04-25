@@ -114,4 +114,58 @@
         where order_id = #{orderId}
         limit 1
     </select>
+
+    <select id="selectByUserIdAndCouponToken" resultType="com.suddenfix.order.domain.pojo.CouponRecord">
+        select id,coupon_id,user_id,segment_index,coupon_token,status,order_id,used_time,create_time,update_time
+        from coupon_claim_record
+        where user_id = #{userId}
+          and coupon_token = #{couponToken}
+        limit 1
+    </select>
+
+    <select id="selectCouponDetailByOrderId" resultType="com.suddenfix.order.domain.vo.OrderCouponVO">
+        select c.id as coupon_id,
+               c.name,
+               c.amount,
+               c.min_point,
+               r.segment_index as segment,
+               r.coupon_token,
+               r.status,
+               r.used_time
+        from coupon_claim_record r
+                 inner join coupon c on c.id = r.coupon_id
+        where r.order_id = #{orderId}
+          and c.is_deleted = 0
+        limit 1
+    </select>
+
+    <select id="selectClaimedCouponIds" resultType="java.lang.Long">
+        select coupon_id
+        from coupon_claim_record
+        where user_id = #{userId}
+          and coupon_id in
+        <foreach collection="couponIds" item="couponId" open="(" close=")" separator=",">
+            #{couponId}
+        </foreach>
+        group by coupon_id
+    </select>
+
+    <select id="selectUsableCouponsByUserId" resultType="com.suddenfix.order.domain.vo.UserCouponVO">
+        select c.id as coupon_id,
+               c.name,
+               c.amount,
+               c.min_point,
+               r.segment_index as segment,
+               r.coupon_token,
+               c.start_time,
+               c.end_time
+        from coupon_claim_record r
+                 inner join coupon c on c.id = r.coupon_id
+        where r.user_id = #{userId}
+          and r.status = 0
+          and r.order_id is null
+          and c.is_deleted = 0
+          and c.end_time <![CDATA[ >= ]]> #{now}
+        order by c.amount desc, c.end_time asc
+    </select>
 </mapper>

@@ -54,6 +54,14 @@ rules:
             shardingColumn: business_id
             shardingAlgorithmName: msg_table_inline_alg
 
+      # 4. 优惠券活动表
+      coupon:
+        actualDataNodes: ds0.coupon
+
+      # 5. 优惠券领取记录表
+      coupon_claim_record:
+        actualDataNodes: ds0.coupon_claim_record
+
     shardingAlgorithms:
       # 修正后的订单库分片：使用 INLINE 确保与手动配置的物理节点匹配
       db_inline_alg:

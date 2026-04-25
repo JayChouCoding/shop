@@ -29,7 +29,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -47,6 +49,9 @@ import static com.suddenfix.common.enums.RedisPreMessage.PAY_NOTIFY_LOCKED;
 @Service
 @RequiredArgsConstructor
 public class PayServiceImpl implements IPayService {
+
+    private static final long JS_SAFE_INTEGER_RECOVERY_WINDOW = 4096L;
+    private static final int RECENT_PENDING_PAY_LIMIT = 10;
 
     private final PayMapper payMapper;
     private final RedisTemplate<String, Object> redisTemplate;
@@ -121,9 +126,7 @@ public class PayServiceImpl implements IPayService {
 
     @Override
     public Result<Pay> queryPay(Long orderId, Long userId) {
-        Pay pay = userId == null
-                ? payMapper.selectPayByOrderId(orderId)
-                : payMapper.selectPayByOrderIdAndUserId(orderId, userId);
+        Pay pay = resolvePay(orderId, userId);
         if (pay == null) {
             throw new ServiceException("支付单正在生成中，请稍后重试");
         }
@@ -137,9 +140,7 @@ public class PayServiceImpl implements IPayService {
 
     @Override
     public String createAlipayPage(Long orderId, Long userId) {
-        Pay pay = userId == null
-                ? payMapper.selectPayByOrderId(orderId)
-                : payMapper.selectPayByOrderIdAndUserId(orderId, userId);
+        Pay pay = resolvePay(orderId, userId);
         if (pay == null) {
             throw new ServiceException("支付单尚未生成，请稍后重试");
         }
@@ -155,7 +156,7 @@ public class PayServiceImpl implements IPayService {
             JSONObject bizContent = new JSONObject();
             bizContent.set("out_trade_no", pay.getOutTradeNo());
             bizContent.set("total_amount", toYuan(pay.getAmount()));
-            bizContent.set("subject", "suddenfix商城订单" + orderId);
+            bizContent.set("subject", "suddenfix商城订单" + pay.getOrderId());
             bizContent.set("product_code", "FAST_INSTANT_TRADE_PAY");
             request.setBizContent(bizContent.toString());
 
@@ -163,6 +164,31 @@ public class PayServiceImpl implements IPayService {
         } catch (AlipayApiException e) {
             throw new ServiceException("创建支付宝支付页失败");
         }
+    }
+
+    private Pay resolvePay(Long orderId, Long userId) {
+        Pay pay = userId == null
+                ? payMapper.selectPayByOrderId(orderId)
+                : payMapper.selectPayByOrderIdAndUserId(orderId, userId);
+        if (pay != null || userId == null || orderId == null) {
+            return pay;
+        }
+
+        List<Pay> recentPays = payMapper.selectRecentPendingPayByUserId(userId, RECENT_PENDING_PAY_LIMIT);
+        if (recentPays == null || recentPays.isEmpty()) {
+            return null;
+        }
+
+        Pay recoveredPay = recentPays.stream()
+                .filter(item -> item.getOrderId() != null)
+                .filter(item -> Math.abs(item.getOrderId() - orderId) <= JS_SAFE_INTEGER_RECOVERY_WINDOW)
+                .min(Comparator.comparingLong(item -> Math.abs(item.getOrderId() - orderId)))
+                .orElse(null);
+        if (recoveredPay != null) {
+            log.warn("【支付服务】检测到前端订单号可能发生 JS 精度丢失，requestOrderId={}, recoveredOrderId={}, userId={}",
+                    orderId, recoveredPay.getOrderId(), userId);
+        }
+        return recoveredPay;
     }
 
     @Override

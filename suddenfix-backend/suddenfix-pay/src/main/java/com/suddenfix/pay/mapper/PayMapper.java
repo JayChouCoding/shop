@@ -4,6 +4,8 @@ import com.suddenfix.pay.domain.pojo.Pay;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 @Mapper
 public interface PayMapper {
     int insertPay(Pay pay);
@@ -17,4 +19,6 @@ public interface PayMapper {
     int updatePayRefunded(@Param("outTradeNo") String outTradeNo, @Param("errorMsg") String errorMsg);
 
     Pay selectPayByOutTradeNo(@Param("outTradeNo") String outTradeNo);
+
+    List<Pay> selectRecentPendingPayByUserId(@Param("userId") Long userId, @Param("limit") Integer limit);
 }

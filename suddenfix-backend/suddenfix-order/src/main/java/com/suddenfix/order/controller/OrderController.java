@@ -39,4 +39,16 @@ public class OrderController {
         return orderService.getUserOrderDetail(userId, orderId);
     }
 
+    @PostMapping("/{orderId}/cancel")
+    public Result<Void> cancelUserOrder(@RequestHeader("user_id") Long userId,
+                                        @PathVariable Long orderId) {
+        return orderService.cancelUserOrder(userId, orderId);
+    }
+
+    @PostMapping("/{orderId}/refund")
+    public Result<Void> refundUserOrder(@RequestHeader("user_id") Long userId,
+                                        @PathVariable Long orderId) {
+        return orderService.refundUserOrder(userId, orderId);
+    }
+
 }

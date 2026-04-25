@@ -12,6 +12,7 @@ const router = useRouter();
 
 const loading = ref(false);
 const orders = ref([]);
+const actionLoadingMap = reactive({});
 
 const payAssist = reactive({
   visible: false,
@@ -31,6 +32,22 @@ const summary = computed(() => {
   const paid = orders.value.filter((item) => Number(item.order?.status) >= 20).length;
   return { total, pending, paid };
 });
+
+function actionKey(orderId, action) {
+  return `${orderId}:${action}`;
+}
+
+function isActionLoading(orderId, action) {
+  return Boolean(actionLoadingMap[actionKey(orderId, action)]);
+}
+
+function canCancel(status) {
+  return Number(status) === 10;
+}
+
+function canRefund(status) {
+  return [20, 30, 40].includes(Number(status));
+}
 
 function formatTime(value) {
   if (!value) {
@@ -119,6 +136,45 @@ async function launchPay(order) {
     clearPayFallbackTimer();
     openManualPay(order, error.message || '自动打开支付宝失败，请点击按钮继续付款');
     ElMessage.error(error.message || '自动打开支付宝失败，请点击按钮继续付款');
+  }
+}
+
+function goDetail(orderId) {
+  if (!orderId) {
+    return;
+  }
+  router.push(`/account/${orderId}`);
+}
+
+async function cancelOrder(orderId) {
+  if (!orderId || isActionLoading(orderId, 'cancel')) {
+    return;
+  }
+  actionLoadingMap[actionKey(orderId, 'cancel')] = true;
+  try {
+    await orderApi.cancel(orderId);
+    ElMessage.success('订单已取消');
+    await loadOrders();
+  } catch (error) {
+    ElMessage.error(error.message || '取消订单失败');
+  } finally {
+    actionLoadingMap[actionKey(orderId, 'cancel')] = false;
+  }
+}
+
+async function refundOrder(orderId) {
+  if (!orderId || isActionLoading(orderId, 'refund')) {
+    return;
+  }
+  actionLoadingMap[actionKey(orderId, 'refund')] = true;
+  try {
+    await orderApi.refund(orderId);
+    ElMessage.success('退货退款申请已提交');
+    await loadOrders();
+  } catch (error) {
+    ElMessage.error(error.message || '退货退款申请失败');
+  } finally {
+    actionLoadingMap[actionKey(orderId, 'refund')] = false;
   }
 }
 
@@ -224,6 +280,23 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="card-actions">
+          <button class="ghost-button" @click="goDetail(entry.order?.orderId)">查看订单详情</button>
+          <button
+            v-if="canCancel(entry.order?.status)"
+            class="ghost-button warning-ghost"
+            :disabled="isActionLoading(entry.order?.orderId, 'cancel')"
+            @click="cancelOrder(entry.order?.orderId)"
+          >
+            {{ isActionLoading(entry.order?.orderId, 'cancel') ? '取消中...' : '取消订单' }}
+          </button>
+          <button
+            v-if="canRefund(entry.order?.status)"
+            class="ghost-button warm-ghost"
+            :disabled="isActionLoading(entry.order?.orderId, 'refund')"
+            @click="refundOrder(entry.order?.orderId)"
+          >
+            {{ isActionLoading(entry.order?.orderId, 'refund') ? '提交中...' : '申请退货退款' }}
+          </button>
           <button
             v-if="Number(entry.order?.status) === 10"
             class="pay-now-button"
@@ -231,7 +304,6 @@ onBeforeUnmount(() => {
           >
             去支付
           </button>
-          <button v-else class="ghost-button" @click="router.push('/account')">查看订单详情</button>
         </div>
       </article>
     </div>
@@ -519,6 +591,23 @@ onBeforeUnmount(() => {
   padding: 14px 18px;
   color: var(--ink);
   background: rgba(47, 25, 18, 0.06);
+}
+
+.ghost-button:disabled,
+.pay-now-button:disabled,
+.assist-pay-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.warning-ghost {
+  color: #8a2020;
+  background: rgba(219, 75, 75, 0.14);
+}
+
+.warm-ghost {
+  color: #9a4e0f;
+  background: rgba(255, 182, 77, 0.2);
 }
 
 .pay-now-button:hover,

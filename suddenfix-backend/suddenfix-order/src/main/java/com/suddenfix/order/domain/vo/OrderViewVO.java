@@ -18,4 +18,6 @@ public class OrderViewVO {
     private Order order;
 
     private List<OrderItem> items;
+
+    private OrderCouponVO coupon;
 }

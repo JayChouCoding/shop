@@ -7,7 +7,9 @@ import ProductLaunchView from '../views/ProductLaunchView.vue';
 import CartCheckoutView from '../views/CartCheckoutView.vue';
 import OrderProcessingView from '../views/OrderProcessingView.vue';
 import OrderListView from '../views/OrderList.vue';
+import OrderDetailView from '../views/OrderDetailView.vue';
 import AdminDashboardView from '../views/AdminDashboardView.vue';
+import CouponCenterView from '../views/CouponCenterView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -47,6 +49,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresRole: 0 }
     },
     {
+      path: '/coupons',
+      name: 'coupons',
+      component: CouponCenterView,
+      meta: { requiresAuth: true, requiresRole: 0 }
+    },
+    {
       path: '/orders/:id/processing',
       name: 'order-processing',
       component: OrderProcessingView,
@@ -56,6 +64,12 @@ const router = createRouter({
       path: '/account',
       name: 'account',
       component: OrderListView,
+      meta: { requiresAuth: true, requiresRole: 0 }
+    },
+    {
+      path: '/account/:id',
+      name: 'order-detail',
+      component: OrderDetailView,
       meta: { requiresAuth: true, requiresRole: 0 }
     },
     {

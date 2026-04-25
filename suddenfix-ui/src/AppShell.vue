@@ -18,6 +18,7 @@ const navItems = computed(() => {
   }
   return [
     { label: '商品会场', to: '/home' },
+    { label: '领券中心', to: '/coupons' },
     { label: '购物车', to: '/cart' },
     { label: '我的订单', to: '/account' }
   ];

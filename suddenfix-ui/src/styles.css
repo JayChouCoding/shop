@@ -927,6 +927,13 @@ button {
   margin-top: 22px;
 }
 
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 .launch-panel {
   display: flex;
   flex-direction: column;

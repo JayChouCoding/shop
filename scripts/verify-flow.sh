@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://localhost}"
+BASE_URL="${BASE_URL:-http://localhost:4173}"
 API_BASE="${BASE_URL%/}/api"
 SUFFIX="${SUFFIX:-$(date +%s)}"
 USERNAME="${USERNAME:-sf_user_${SUFFIX}}"

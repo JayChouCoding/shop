@@ -23,6 +23,7 @@ import com.suddenfix.order.mapper.CouponRecordMapper;
 import com.suddenfix.order.mapper.MsgMapper;
 import com.suddenfix.order.mapper.OrderItemMapper;
 import com.suddenfix.order.mapper.OrderMapper;
+import com.suddenfix.order.service.CartService1;
 import com.suddenfix.order.config.OrderEventRabbitConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,7 @@ public class OrderCreateListener {
     private final CouponRecordMapper couponRecordMapper;
     private final ProductFeign productFeign;
     private final OrderItemMapper orderItemMapper;
+    private final CartService1 cartService1;
     private final RabbitTemplate rabbitTemplate;
 
     @RabbitListener(queues = OrderEventRabbitConfig.ON_CREATE_QUEUE)
@@ -208,6 +210,7 @@ public class OrderCreateListener {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
+                clearCheckedCart(orderMessage.getUserId(), productIds);
                 for (DeductionProductDTO deductionProduct : deductionProducts) {
                     rabbitTemplate.convertAndSend(
                             RabbitEventConstants.EVENT_EXCHANGE,
@@ -232,6 +235,14 @@ public class OrderCreateListener {
         int insertRow = msgMapper.insertMsg(msg);
         if (insertRow <= 0) {
             throw new ServiceException(ResultCodeEnum.INSERT_MSG_ERROR);
+        }
+    }
+
+    private void clearCheckedCart(Long userId, List<Long> productIds) {
+        try {
+            cartService1.clearCheckedItems(userId, productIds);
+        } catch (Exception e) {
+            log.warn("【订单服务】订单已创建，但清理购物车已选商品失败，userId={}, productIds={}", userId, productIds, e);
         }
     }
 }

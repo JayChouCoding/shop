@@ -48,6 +48,15 @@ export const couponApi = {
   },
   preheat(payload) {
     return client.post('/coupon/preheat', payload);
+  },
+  available() {
+    return client.get('/coupon/available');
+  },
+  claim(couponId) {
+    return client.post(`/coupon/getCoupon/${couponId}`);
+  },
+  my() {
+    return client.get('/coupon/my');
   }
 };
 
@@ -75,6 +84,12 @@ export const cartApi = {
 export const orderApi = {
   create(payload) {
     return client.post('/order/buy', payload);
+  },
+  cancel(orderId) {
+    return client.post(`/order/${orderId}/cancel`);
+  },
+  refund(orderId) {
+    return client.post(`/order/${orderId}/refund`);
   },
   status(orderId) {
     return client.get(`/order/status/${orderId}`);

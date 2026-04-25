@@ -5,8 +5,11 @@ import com.suddenfix.common.exception.ServiceException;
 import com.suddenfix.common.result.Result;
 import com.suddenfix.order.domain.dto.CouponPreheatDTO;
 import com.suddenfix.order.domain.pojo.Coupon;
+import com.suddenfix.order.domain.vo.CouponActivityVO;
 import com.suddenfix.order.domain.vo.CouponPreheatVO;
+import com.suddenfix.order.domain.vo.UserCouponVO;
 import com.suddenfix.order.mapper.CouponMapper;
+import com.suddenfix.order.mapper.CouponRecordMapper;
 import com.suddenfix.order.service.ICouponService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -14,8 +17,13 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_BITMAP;
@@ -34,6 +42,7 @@ public class CouponServiceImpl implements ICouponService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final CouponMapper couponMapper;
+    private final CouponRecordMapper couponRecordMapper;
 
     @Override
     public Result<Void> preheatCoupon(CouponPreheatDTO couponPreheatDTO) {
@@ -46,6 +55,8 @@ public class CouponServiceImpl implements ICouponService {
         redisTemplate.delete(metaKey(couponId));
         redisTemplate.delete(userBuy(couponId));
         redisTemplate.delete(userSet(couponId));
+        redisTemplate.delete(couponBitmap(couponId));
+        redisTemplate.delete(stockISExist(couponId));
         for (int i = 0; i < segmentCount; i++) {
             redisTemplate.delete(segmentStock(couponId, i));
         }
@@ -82,6 +93,12 @@ public class CouponServiceImpl implements ICouponService {
 
     @Override
     public Result<CouponPreheatVO> getCoupon(Long couponId, Long userId) {
+        Coupon coupon = couponMapper.selectCoupon(couponId);
+        validateCouponClaimWindow(coupon);
+        if (hasClaimedCoupon(userId, couponId)) {
+            throw new ServiceException("已经领取过该优惠券，请勿重复领取");
+        }
+
         Object object = redisTemplate.opsForHash().get(metaKey(couponId), "status");
         if (object == null || !"READY".equals(String.valueOf(object))) {
             throw new ServiceException("优惠券库存尚未预热");
@@ -141,6 +158,61 @@ public class CouponServiceImpl implements ICouponService {
 
         redisTemplate.opsForSet().remove(userSet(couponId), userId.toString());
         return Result.fail();
+    }
+
+    @Override
+    public Result<List<CouponActivityVO>> listAvailableCoupons(Long userId) {
+        Date now = new Date();
+        List<Coupon> coupons = couponMapper.selectActiveCoupons(now);
+        if (coupons.isEmpty()) {
+            return Result.success(List.of());
+        }
+
+        List<Long> couponIds = coupons.stream().map(Coupon::getId).toList();
+        Set<Long> claimedCouponIds = new HashSet<>(safeClaimedCouponIds(userId, couponIds));
+        List<CouponActivityVO> activities = coupons.stream()
+                .map(coupon -> {
+                    int remainingStock = resolveRemainingStock(coupon);
+                    boolean claimed = claimedCouponIds.contains(coupon.getId());
+                    return CouponActivityVO.builder()
+                            .couponId(coupon.getId())
+                            .name(coupon.getName())
+                            .amount(coupon.getAmount())
+                            .minPoint(coupon.getMinPoint())
+                            .totalStock(coupon.getTotalStock())
+                            .remainingStock(remainingStock)
+                            .segmentCount(coupon.getSegmentCount())
+                            .startTime(coupon.getStartTime())
+                            .endTime(coupon.getEndTime())
+                            .claimed(claimed)
+                            .canClaim(!claimed && remainingStock > 0)
+                            .build();
+                })
+                .toList();
+        return Result.success(activities);
+    }
+
+    @Override
+    public Result<List<UserCouponVO>> listUserCoupons(Long userId) {
+        return Result.success(couponRecordMapper.selectUsableCouponsByUserId(userId, new Date()));
+    }
+
+    @Override
+    public Result<List<UserCouponVO>> listCheckoutCoupons(Long userId, Long orderAmount) {
+        long resolvedOrderAmount = orderAmount == null ? 0L : Math.max(0L, orderAmount);
+        List<UserCouponVO> coupons = couponRecordMapper.selectUsableCouponsByUserId(userId, new Date());
+        if (coupons == null || coupons.isEmpty()) {
+            return Result.success(List.of());
+        }
+
+        List<UserCouponVO> result = coupons.stream()
+                .map(coupon -> enrichCheckoutCoupon(coupon, resolvedOrderAmount))
+                .sorted(Comparator
+                        .comparing((UserCouponVO coupon) -> !Boolean.TRUE.equals(coupon.getAvailable()))
+                        .thenComparing(UserCouponVO::getEstimatedDiscountAmount, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(UserCouponVO::getCouponId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        return Result.success(result);
     }
 
     @Override
@@ -213,12 +285,58 @@ public class CouponServiceImpl implements ICouponService {
         return coupon;
     }
 
+    private void validateCouponClaimWindow(Coupon coupon) {
+        if (coupon == null) {
+            throw new ServiceException("优惠券不存在");
+        }
+        Date now = new Date();
+        if (coupon.getStartTime() != null && now.before(coupon.getStartTime())) {
+            throw new ServiceException("优惠券活动尚未开始");
+        }
+        if (coupon.getEndTime() != null && now.after(coupon.getEndTime())) {
+            throw new ServiceException("优惠券活动已结束");
+        }
+    }
+
+    private boolean hasClaimedCoupon(Long userId, Long couponId) {
+        return safeClaimedCouponIds(userId, List.of(couponId)).contains(couponId);
+    }
+
+    private List<Long> safeClaimedCouponIds(Long userId, List<Long> couponIds) {
+        if (couponIds == null || couponIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> claimedCouponIds = couponRecordMapper.selectClaimedCouponIds(userId, couponIds);
+        return claimedCouponIds == null ? List.of() : claimedCouponIds;
+    }
+
+    private int resolveRemainingStock(Coupon coupon) {
+        Object stockExist = redisTemplate.opsForValue().get(stockISExist(coupon.getId()));
+        if (stockExist != null && "0".equals(String.valueOf(stockExist))) {
+            return 0;
+        }
+
+        int segmentCount = coupon.getSegmentCount() == null || coupon.getSegmentCount() <= 0
+                ? Math.min(10, coupon.getTotalStock() == null ? 0 : coupon.getTotalStock())
+                : coupon.getSegmentCount();
+        if (segmentCount <= 0) {
+            return 0;
+        }
+
+        int remaining = 0;
+        for (int i = 0; i < segmentCount; i++) {
+            Long size = redisTemplate.opsForList().size(segmentStock(coupon.getId(), i));
+            remaining += size == null ? 0 : size.intValue();
+        }
+        return remaining;
+    }
+
     private String metaKey(Long couponId) {
         return COUPON_META.getValue() + couponId;
     }
 
     private String segmentStock(Long couponId, Integer segment) {
-        return COUPON_STOCK_SEGMENT.getValue() + couponId + segment;
+        return COUPON_STOCK_SEGMENT.getValue() + couponId + ":" + segment;
     }
 
     private String userBuy(Long couponId) {
@@ -235,5 +353,32 @@ public class CouponServiceImpl implements ICouponService {
 
     private String stockISExist(Long couponId) {
         return COUPON_IS_EXIST.getValue() + couponId;
+    }
+
+    private UserCouponVO enrichCheckoutCoupon(UserCouponVO coupon, long orderAmount) {
+        long threshold = toMinorUnits(coupon.getMinPoint());
+        long estimatedDiscount = Math.min(orderAmount, toMinorUnits(coupon.getAmount()));
+        boolean available = orderAmount > 0 && orderAmount >= threshold && estimatedDiscount > 0;
+
+        coupon.setOrderAmount(orderAmount);
+        coupon.setAvailable(available);
+        coupon.setEstimatedDiscountAmount(available ? estimatedDiscount : 0L);
+        if (available) {
+            coupon.setUnavailableReason("");
+        } else if (orderAmount <= 0) {
+            coupon.setUnavailableReason("当前订单金额为 0，暂不可使用");
+        } else if (threshold > orderAmount) {
+            coupon.setUnavailableReason("未达到使用门槛");
+        } else {
+            coupon.setUnavailableReason("当前优惠券暂不可使用");
+        }
+        return coupon;
+    }
+
+    private long toMinorUnits(BigDecimal amount) {
+        if (amount == null) {
+            return 0L;
+        }
+        return amount.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValue();
     }
 }

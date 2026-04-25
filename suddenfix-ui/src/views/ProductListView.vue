@@ -158,6 +158,10 @@ onMounted(loadProducts);
           <span class="soft-badge">价格实时展示</span>
           <span class="soft-badge">移动端同步适配</span>
         </div>
+        <div class="hero-actions">
+          <el-button type="primary" plain @click="router.push('/coupons')">去领券中心</el-button>
+          <el-button @click="router.push('/account')">查看我的订单</el-button>
+        </div>
       </div>
 
       <div class="launch-panel">

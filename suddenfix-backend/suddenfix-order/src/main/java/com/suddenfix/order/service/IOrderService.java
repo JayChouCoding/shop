@@ -14,4 +14,8 @@ public interface IOrderService {
     Result<List<OrderViewVO>> listUserOrders(Long userId);
 
     Result<OrderViewVO> getUserOrderDetail(Long userId, Long orderId);
+
+    Result<Void> cancelUserOrder(Long userId, Long orderId);
+
+    Result<Void> refundUserOrder(Long userId, Long orderId);
 }

@@ -64,4 +64,12 @@
         select pay_id,order_id,user_id,out_trade_no,channel_trade_no,pay_channel,amount,status,pay_time,error_msg,create_time,update_time
         from t_pay_record where out_trade_no = #{outTradeNo}
     </select>
+    <select id="selectRecentPendingPayByUserId" resultType="com.suddenfix.pay.domain.pojo.Pay">
+        select pay_id,order_id,user_id,out_trade_no,channel_trade_no,pay_channel,amount,status,pay_time,error_msg,create_time,update_time
+        from t_pay_record
+        where user_id = #{userId}
+          and status = 0
+        order by create_time desc
+        limit #{limit}
+    </select>
 </mapper>

@@ -1,9 +1,29 @@
 import axios from 'axios';
 import { clearSession, sessionState } from '../stores/session';
 
+function parseJsonSafely(data) {
+  if (!data || typeof data !== 'string') {
+    return data;
+  }
+  const trimmed = data.trim();
+  if (!trimmed || trimmed.startsWith('<')) {
+    return data;
+  }
+
+  try {
+    const safeJson = trimmed
+      .replace(/(:\s*)(-?\d{16,})(?=\s*[,}\]])/g, '$1"$2"')
+      .replace(/([\[,]\s*)(-?\d{16,})(?=\s*[,}\]])/g, '$1"$2"');
+    return JSON.parse(safeJson);
+  } catch (error) {
+    return data;
+  }
+}
+
 const client = axios.create({
   baseURL: '/api',
-  timeout: 10000
+  timeout: 10000,
+  transformResponse: [parseJsonSafely]
 });
 
 client.interceptors.request.use((config) => {

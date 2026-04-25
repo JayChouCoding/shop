@@ -20,6 +20,8 @@ public interface OrderMapper {
 
     int cancelOrder(@Param("userId") Long userId, @Param("orderId") Long orderId);
 
+    int closePaidOrder(@Param("userId") Long userId, @Param("orderId") Long orderId);
+
     Order selectByOrderId(@Param("orderId") Long orderId);
 
     List<Order> selectByUserId(@Param("userId") Long userId);
