@@ -3,29 +3,26 @@ package com.suddenfix.order.listener;
 import cn.hutool.json.JSONUtil;
 import com.suddenfix.common.constants.RabbitEventConstants;
 import com.suddenfix.common.dto.CouponRollbackMessage;
+import com.suddenfix.common.enums.MsgStatus;
 import com.suddenfix.order.config.OrderEventRabbitConfig;
 import com.suddenfix.order.domain.pojo.CouponRecord;
-import com.suddenfix.order.domain.pojo.OrderItem;
+import com.suddenfix.order.domain.pojo.Msg;
 import com.suddenfix.order.domain.pojo.OrderWithProduct;
 import com.suddenfix.order.mapper.CouponRecordMapper;
-import com.suddenfix.order.mapper.OrderItemMapper;
+import com.suddenfix.order.mapper.MsgMapper;
 import com.suddenfix.order.mapper.OrderMapper;
+import com.suddenfix.common.utils.GeneIdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.Date;
 
 import static com.suddenfix.common.enums.MsgTopic.TOPIC_COUPON_ROLLBACK;
 import static com.suddenfix.common.enums.MsgTopic.TOPIC_RESTORE_STOCK;
 import static com.suddenfix.common.enums.OrderStatic.PENDING_PAYMENT;
-import static com.suddenfix.common.enums.RedisPreMessage.GOODS_PRE_DEDUCTION;
-import static com.suddenfix.common.enums.RedisPreMessage.GOODS_IS_EXIST;
-import static com.suddenfix.common.enums.RedisPreMessage.ORDER_STOCK_RESTORED;
 
 @Component
 @Slf4j
@@ -33,12 +30,11 @@ import static com.suddenfix.common.enums.RedisPreMessage.ORDER_STOCK_RESTORED;
 public class OrderTimeoutCancelListener {
 
     private final OrderMapper orderMapper;
-    private final OrderItemMapper orderItemMapper;
     private final CouponRecordMapper couponRecordMapper;
-    private final RabbitTemplate rabbitTemplate;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final MsgMapper msgMapper;
 
     @RabbitListener(queues = OrderEventRabbitConfig.ORDER_CANCEL_QUEUE)
+    @Transactional(rollbackFor = Exception.class)
     public void onOrderTimeout(String payload) {
         log.info("【订单服务】收到订单取消消息: {}", payload);
 
@@ -63,22 +59,9 @@ public class OrderTimeoutCancelListener {
                 return;
             }
 
-            List<OrderItem> items = orderItemMapper.selectByOrderIdAndUserId(orderId, userId);
-            for (OrderItem item : items) {
-                String stockKey = GOODS_PRE_DEDUCTION.getValue() + item.getProductId();
-                if (Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
-                    redisTemplate.opsForValue().increment(stockKey, item.getQuantity());
-                } else {
-                    redisTemplate.opsForValue().set(stockKey, item.getQuantity(), 1, TimeUnit.DAYS);
-                }
-                redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + item.getProductId(), 1, 1, TimeUnit.DAYS);
-            }
-            redisTemplate.opsForValue().set(ORDER_STOCK_RESTORED.getValue() + orderId, "1", 1, TimeUnit.DAYS);
-
-            rabbitTemplate.convertAndSend(RabbitEventConstants.EVENT_EXCHANGE, TOPIC_RESTORE_STOCK.getTopic(), payload);
+            insertLocalMessage(userId, TOPIC_RESTORE_STOCK.getTopic(), payload);
 
             CouponRecord couponRecord = couponRecordMapper.selectByOrderId(orderId);
-            couponRecordMapper.clearCouponBindingByOrderId(orderId);
             Long couponId = couponRecord == null ? null : couponRecord.getCouponId();
             String couponToken = couponRecord == null ? null : couponRecord.getCouponToken();
             Integer couponSegment = couponRecord == null ? null : couponRecord.getSegmentIndex();
@@ -90,15 +73,23 @@ public class OrderTimeoutCancelListener {
                         .segment(couponSegment)
                         .couponToken(couponToken)
                         .build();
-                rabbitTemplate.convertAndSend(
-                        RabbitEventConstants.EVENT_EXCHANGE,
-                        TOPIC_COUPON_ROLLBACK.getTopic(),
-                        JSONUtil.toJsonStr(rollbackMessage)
-                );
+                insertLocalMessage(userId, TOPIC_COUPON_ROLLBACK.getTopic(), JSONUtil.toJsonStr(rollbackMessage));
             }
         } catch (Exception e) {
             log.error("【订单服务】处理订单取消消息异常", e);
             throw e;
         }
+    }
+
+    private void insertLocalMessage(Long userId, String topic, String payload) {
+        msgMapper.insertMsg(Msg.builder()
+                .msgId(GeneIdGenerator.generatorId(userId))
+                .businessId(GeneIdGenerator.generatorId(userId))
+                .topic(topic)
+                .payload(payload)
+                .status(MsgStatus.PENDING_SENDING.getStatus())
+                .retryCount(0)
+                .nextRetryTime(new Date())
+                .build());
     }
 }

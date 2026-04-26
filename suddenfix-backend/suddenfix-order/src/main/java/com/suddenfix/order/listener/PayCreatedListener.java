@@ -24,7 +24,7 @@ public class PayCreatedListener {
             return;
         }
 
-        int updateRow = orderMapper.updateOrderStatusToPendingPayment(message.getOrderId());
+        int updateRow = orderMapper.updateOrderStatusToPendingPayment(message.getOrderId(), message.getOutTradeNo());
         if (updateRow > 0) {
             log.info("【订单服务】订单 {} 已进入待支付状态", message.getOrderId());
             return;

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { orderApi, payApi, productApi, userApi } from '../api/services';
+import { couponApi, orderApi, payApi, productApi, userApi } from '../api/services';
 import { hasSession } from '../stores/session';
 import { submitAlipayHtml } from '../utils/alipay';
 import { formatCurrency, joinAddress } from '../utils/format';
@@ -28,8 +28,11 @@ const router = useRouter();
 
 const loading = ref(false);
 const submitting = ref(false);
+const couponLoading = ref(false);
 const productPayload = ref(null);
 const addresses = ref([]);
+const userCoupons = ref([]);
+const selectedCouponToken = ref('');
 const quantity = ref(1);
 const now = ref(Date.now());
 const visualProgress = ref(0);
@@ -58,6 +61,16 @@ const queue = reactive({
 const resolvedProductId = computed(() => props.productId || route.params.id);
 const product = computed(() => props.initialProduct || productPayload.value?.product || productPayload.value || null);
 const totalAmount = computed(() => Number(product.value?.price || 0) * Number(quantity.value || 1));
+const selectedCoupon = computed(() =>
+  userCoupons.value.find((item) => item.couponToken === selectedCouponToken.value) || null
+);
+const selectedCouponDiscount = computed(() => {
+  if (!selectedCoupon.value || !selectedCoupon.value.available) {
+    return 0;
+  }
+  return Number(selectedCoupon.value.estimatedDiscountAmount || 0);
+});
+const payableAmount = computed(() => Math.max(0, totalAmount.value - selectedCouponDiscount.value));
 
 const saleStart = computed(() => {
   const time = new Date(product.value?.startTime || 0).getTime();
@@ -246,6 +259,31 @@ async function loadProduct() {
   }
 }
 
+async function loadCheckoutCoupons(orderAmount = totalAmount.value) {
+  if (!hasSession() || !orderAmount) {
+    userCoupons.value = [];
+    selectedCouponToken.value = '';
+    return;
+  }
+
+  couponLoading.value = true;
+  try {
+    userCoupons.value = (await couponApi.checkoutAvailable(orderAmount)) || [];
+    if (selectedCouponToken.value) {
+      const stillExists = userCoupons.value.some(
+        (item) => item.couponToken === selectedCouponToken.value && item.available
+      );
+      if (!stillExists) {
+        selectedCouponToken.value = '';
+      }
+    }
+  } catch {
+    userCoupons.value = [];
+  } finally {
+    couponLoading.value = false;
+  }
+}
+
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -324,7 +362,7 @@ async function trySyncQueueFromPay() {
       clearPayFallbackTimer();
       updateQueueStage('paid', { payLaunching: false, payCtaVisible: false });
       stopPolling();
-      window.setTimeout(() => router.replace('/account'), 900);
+      window.setTimeout(() => router.replace(`/account/${queue.orderId}`), 900);
       return true;
     }
 
@@ -355,7 +393,7 @@ async function handleOrderStatus(status) {
     clearPayFallbackTimer();
     updateQueueStage('paid', { payLaunching: false, payCtaVisible: false });
     stopPolling();
-    window.setTimeout(() => router.replace('/account'), 900);
+    window.setTimeout(() => router.replace(`/account/${queue.orderId}`), 900);
     return;
   }
 
@@ -451,12 +489,15 @@ async function submitOrder() {
         [product.value.id]: product.value.name
       },
       freight: 0,
-      discountAmount: 0,
+      discountAmount: selectedCouponDiscount.value,
       receiverName: form.receiverName,
       receiverPhone: form.receiverPhone,
       receiverAddress: form.receiverAddress,
       remark: form.remark,
-      payChannel: 1
+      payChannel: 1,
+      couponId: selectedCoupon.value?.couponId ?? null,
+      couponSegment: selectedCoupon.value?.segment ?? null,
+      couponToken: selectedCoupon.value?.couponToken || ''
     };
 
     const orderId = await orderApi.create(payload);
@@ -491,6 +532,10 @@ onMounted(async () => {
   window.addEventListener('pagehide', markNavigationLikely);
   window.addEventListener('beforeunload', markNavigationLikely);
 });
+
+watch(totalAmount, (amount) => {
+  loadCheckoutCoupons(amount).catch(() => {});
+}, { immediate: true });
 
 onBeforeUnmount(() => {
   if (clockTimer) {
@@ -543,13 +588,59 @@ onBeforeUnmount(() => {
 
             <div class="price-strip">
               <div>
-                <span>预估支付金额</span>
+                <span>原始金额</span>
                 <strong>{{ formatCurrency(totalAmount) }}</strong>
               </div>
               <label class="qty-box">
                 <span>购买数量</span>
                 <input v-model.number="quantity" type="number" min="1" max="5" />
               </label>
+            </div>
+
+            <div class="price-strip summary-strip">
+              <div>
+                <span>优惠抵扣</span>
+                <strong>{{ formatCurrency(selectedCouponDiscount) }}</strong>
+              </div>
+              <div>
+                <span>实付金额</span>
+                <strong>{{ formatCurrency(payableAmount) }}</strong>
+              </div>
+            </div>
+
+            <div class="coupon-panel">
+              <div class="panel-heading compact">
+                <strong>本单可用优惠券</strong>
+                <p>下单前先选券，后端会按当前订单金额重新验券并计算实付。</p>
+              </div>
+
+              <div v-if="couponLoading" class="coupon-empty">正在刷新优惠券...</div>
+              <div v-else-if="!userCoupons.length" class="coupon-empty">当前没有可选优惠券</div>
+              <label
+                v-for="coupon in userCoupons"
+                :key="coupon.couponToken"
+                class="coupon-option"
+                :class="{ active: selectedCouponToken === coupon.couponToken, disabled: !coupon.available }"
+              >
+                <input
+                  v-model="selectedCouponToken"
+                  type="radio"
+                  :value="coupon.couponToken"
+                  :disabled="!coupon.available"
+                />
+                <div>
+                  <strong>{{ coupon.name }}</strong>
+                  <p>
+                    立减 {{ formatCurrency(Math.round(Number(coupon.amount || 0) * 100)) }}
+                    <span>· {{ Number(coupon.minPoint || 0) > 0 ? `满 ${formatCurrency(Math.round(Number(coupon.minPoint || 0) * 100))} 可用` : '无门槛' }}</span>
+                  </p>
+                  <small v-if="!coupon.available">{{ coupon.unavailableReason }}</small>
+                </div>
+              </label>
+
+              <button v-if="selectedCouponToken" class="coupon-reset" type="button" @click="selectedCouponToken = ''">
+                本单不使用优惠券
+              </button>
             </div>
 
             <button class="snatch-button" :disabled="!canSnatch || submitting || queue.visible" @click="submitOrder">
@@ -638,7 +729,7 @@ onBeforeUnmount(() => {
 
           <div class="overlay-actions">
             <button v-if="queue.allowClose" class="ghost-button" @click="closeQueue">先留在当前页</button>
-            <button v-if="queue.allowClose" class="ghost-button" @click="router.push('/account')">去我的订单</button>
+            <button v-if="queue.allowClose" class="ghost-button" @click="router.push(queue.orderId ? `/account/${queue.orderId}` : '/account')">去订单详情</button>
           </div>
         </div>
       </div>
@@ -733,6 +824,10 @@ onBeforeUnmount(() => {
   line-height: 1.7;
 }
 
+.panel-heading.compact {
+  margin-bottom: 14px;
+}
+
 .countdown-panel {
   display: grid;
   gap: 18px;
@@ -757,6 +852,58 @@ onBeforeUnmount(() => {
 
 .countdown-item strong {
   font-size: clamp(36px, 6vw, 54px);
+}
+
+.summary-strip {
+  margin-top: 12px;
+}
+
+.coupon-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255, 247, 239, 0.88);
+}
+
+.coupon-option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(230, 120, 52, 0.16);
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.coupon-option.active {
+  border-color: rgba(216, 96, 31, 0.58);
+  box-shadow: 0 14px 28px rgba(216, 96, 31, 0.12);
+}
+
+.coupon-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.coupon-option p {
+  margin: 6px 0 0;
+}
+
+.coupon-option small,
+.coupon-empty {
+  color: #a96945;
+}
+
+.coupon-reset {
+  justify-self: start;
+  border: none;
+  background: transparent;
+  color: #cf5d24;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .countdown-item span {

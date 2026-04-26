@@ -82,6 +82,18 @@
           and order_id is null
     </update>
 
+    <update id="useCouponForOrder">
+        update coupon_claim_record
+        set order_id = #{orderId},
+            status = 1,
+            used_time = now(),
+            update_time = now()
+        where user_id = #{userId}
+          and coupon_token = #{couponToken}
+          and status = 0
+          and order_id is null
+    </update>
+
     <update id="markCouponUsedByOrderId">
         update coupon_claim_record
         set status = 1,
@@ -148,6 +160,12 @@
             #{couponId}
         </foreach>
         group by coupon_id
+    </select>
+
+    <select id="selectByCouponId" resultType="com.suddenfix.order.domain.pojo.CouponRecord">
+        select id,coupon_id,user_id,segment_index,coupon_token,status,order_id,used_time,create_time,update_time
+        from coupon_claim_record
+        where coupon_id = #{couponId}
     </select>
 
     <select id="selectUsableCouponsByUserId" resultType="com.suddenfix.order.domain.vo.UserCouponVO">

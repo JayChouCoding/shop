@@ -1,18 +1,19 @@
 package com.suddenfix.product.listener;
 
 import cn.hutool.json.JSONUtil;
-import com.suddenfix.common.constants.RabbitEventConstants;
 import com.suddenfix.common.dto.DeductionProductDTO;
+import com.suddenfix.common.enums.MsgStatus;
 import com.suddenfix.common.utils.GeneIdGenerator;
 import com.suddenfix.product.config.ProductEventRabbitConfig;
+import com.suddenfix.product.domain.pojo.Msg;
 import com.suddenfix.product.domain.pojo.Product;
 import com.suddenfix.product.domain.pojo.StockFlow;
+import com.suddenfix.product.mapper.MsgMapper;
 import com.suddenfix.product.mapper.ProductMapper;
 import com.suddenfix.product.mapper.StockFlowMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +35,7 @@ public class StockDeductionListener {
 
     private final ProductMapper productMapper;
     private final StockFlowMapper stockFlowMapper;
-    private final RabbitTemplate rabbitTemplate;
+    private final MsgMapper msgMapper;
     private final RedisTemplate<String, Object> redisTemplate;
 
     @RabbitListener(queues = ProductEventRabbitConfig.STOCK_DEDUCTION_QUEUE)
@@ -84,12 +85,15 @@ public class StockDeductionListener {
             
         } else {
             log.error("【商品服务】乐观锁扣减失败，引发超卖拦截，productId: {}", productId);
-            // 触发回滚
-            rabbitTemplate.convertAndSend(
-                    RabbitEventConstants.EVENT_EXCHANGE,
-                    TOPIC_ORDER_CANCEL_COMPENSATE.getTopic(),
-                    String.valueOf(orderId)
-            );
+            msgMapper.insertIgnoreMsg(Msg.builder()
+                    .msgId(GeneIdGenerator.generatorId(orderId))
+                    .businessId(orderId)
+                    .topic(TOPIC_ORDER_CANCEL_COMPENSATE.getTopic())
+                    .payload(String.valueOf(orderId))
+                    .status(MsgStatus.PENDING_SENDING.getStatus())
+                    .retryCount(0)
+                    .nextRetryTime(new Date())
+                    .build());
         }
     }
 

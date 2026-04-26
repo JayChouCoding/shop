@@ -36,13 +36,13 @@ const copy = computed(() => {
   if (orderStatus.value === 20) {
     return {
       title: '支付结果已同步',
-      description: '订单已经进入后续处理，马上带你回到订单列表。'
+      description: '订单已经进入后续处理，马上带你打开这笔订单的详情页。'
     };
   }
   if (orderStatus.value === 50) {
     return {
       title: '本次订单未继续付款',
-      description: '你可以回到订单列表查看详情，或返回首页继续选购。'
+      description: '你可以回到订单详情查看当前状态，或返回首页继续选购。'
     };
   }
   if (networkBusy.value) {
@@ -176,7 +176,7 @@ async function trySyncPayState() {
       orderStatus.value = 20;
       clearPayFallbackTimer();
       stopPolling();
-      window.setTimeout(() => router.replace('/account'), 800);
+      window.setTimeout(() => router.replace(`/account/${orderId.value}`), 800);
       return true;
     }
 
@@ -211,7 +211,7 @@ async function pollOrderStatus() {
     if (orderStatus.value === 20) {
       clearPayFallbackTimer();
       stopPolling();
-      window.setTimeout(() => router.replace('/account'), 800);
+      window.setTimeout(() => router.replace(`/account/${orderId.value}`), 800);
       return;
     }
     if (orderStatus.value === 50) {

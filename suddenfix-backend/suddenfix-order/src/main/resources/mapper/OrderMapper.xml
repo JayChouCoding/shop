@@ -55,6 +55,7 @@
     <update id="updateOrderStatusToPendingPayment">
         update t_order
         set status = 10,
+            out_trade_no = #{outTradeNo},
             update_time = now()
         where order_id = #{orderId}
           and status = 0
@@ -81,7 +82,7 @@
         SET status = 50, cancel_time = now(), update_time = now()
         WHERE order_id = #{orderId}
           AND user_id = #{userId}
-          AND status in (20, 30, 40)
+          AND status in (20, 30)
     </update>
     <select id="selectStatusByOrderIdAndUserId" resultType="java.lang.Integer">
         select status from t_order where user_id = #{userId} and order_id = #{orderId}

@@ -17,6 +17,10 @@ public interface CouponRecordMapper {
                           @Param("couponToken") String couponToken,
                           @Param("orderId") Long orderId);
 
+    int useCouponForOrder(@Param("userId") Long userId,
+                          @Param("couponToken") String couponToken,
+                          @Param("orderId") Long orderId);
+
     int markCouponUsedByOrderId(@Param("orderId") Long orderId);
 
     int rollbackCouponUsedByOrderId(@Param("orderId") Long orderId);
@@ -31,6 +35,8 @@ public interface CouponRecordMapper {
     OrderCouponVO selectCouponDetailByOrderId(@Param("orderId") Long orderId);
 
     List<Long> selectClaimedCouponIds(@Param("userId") Long userId, @Param("couponIds") List<Long> couponIds);
+
+    List<CouponRecord> selectByCouponId(@Param("couponId") Long couponId);
 
     List<UserCouponVO> selectUsableCouponsByUserId(@Param("userId") Long userId, @Param("now") Date now);
 }

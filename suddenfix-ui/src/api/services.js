@@ -57,6 +57,11 @@ export const couponApi = {
   },
   my() {
     return client.get('/coupon/my');
+  },
+  checkoutAvailable(orderAmount) {
+    return client.get('/coupon/checkout/available', {
+      params: { orderAmount }
+    });
   }
 };
 

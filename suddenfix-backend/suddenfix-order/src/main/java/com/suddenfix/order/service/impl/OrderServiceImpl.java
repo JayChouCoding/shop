@@ -17,6 +17,7 @@ import com.suddenfix.order.domain.pojo.Msg;
 import com.suddenfix.order.domain.pojo.Order;
 import com.suddenfix.order.domain.pojo.OrderItem;
 import com.suddenfix.order.domain.pojo.OrderWithProduct;
+import com.suddenfix.order.domain.vo.CouponPreheatVO;
 import com.suddenfix.order.domain.vo.OrderCouponVO;
 import com.suddenfix.order.domain.vo.OrderViewVO;
 import com.suddenfix.order.feign.ProductFeign;
@@ -33,17 +34,27 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.util.*;
+
 import static com.suddenfix.common.enums.MsgTopic.TOPIC_ON_CREATE;
 import static com.suddenfix.common.enums.RedisPreMessage.GOODS_IS_EXIST;
 import static com.suddenfix.common.enums.RedisPreMessage.GOODS_PRE_DEDUCTION;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_RESERVED;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_SET;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_TOKEN_HASH;
+import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_PREHEAT_HASH;
 import static com.suddenfix.common.enums.RedisPreMessage.REDIS_PREVENT_DUPLICATION;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class OrderServiceImpl implements IOrderService {
+
+    private static final DefaultRedisScript<Long> COUPON_RESERVE_SCRIPT = buildCouponReserveScript();
+    private static final DefaultRedisScript<Long> COUPON_RELEASE_SCRIPT = buildCouponReleaseScript();
+    private static final DefaultRedisScript<Long> COUPON_RECOVER_RESERVE_SCRIPT = buildCouponRecoverReserveScript();
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
@@ -58,10 +69,18 @@ public class OrderServiceImpl implements IOrderService {
 
     @Override
     public Result<Long> createOrder(OrderDTO orderDTO) {
+        if (orderDTO == null || orderDTO.getIdempotentKey() == null || orderDTO.getIdempotentKey().isBlank()) {
+            throw new ServiceException("下单幂等键不能为空");
+        }
+        if (orderDTO.getProducts() == null || orderDTO.getProducts().isEmpty()) {
+            throw new ServiceException("下单商品不能为空");
+        }
         // 用 Redis 存储幂等键防止用户重复点击
-        String idempotentKey = REDIS_PREVENT_DUPLICATION + orderDTO.getIdempotentKey();
+        String idempotentKey = REDIS_PREVENT_DUPLICATION.getValue() + orderDTO.getIdempotentKey();
         List<Long> successDeductProductIds = new ArrayList<>();
         Map<Long, Long> deductQuantities = new HashMap<>();
+        boolean couponReserved = false;
+        OrderCreateMessage orderCreateMessage = null;
         try{
             if (Boolean.FALSE.equals(redisTemplate.opsForValue().setIfAbsent(idempotentKey, 1, RedisExpirationTime.EXPIRATION_TIME.getTimeout()))) {
                 return Result.fail(ResultCodeEnum.ORDER_IS_EXIST);
@@ -69,16 +88,28 @@ public class OrderServiceImpl implements IOrderService {
 
             Long orderId = GeneIdGenerator.generatorId(orderDTO.getUserId());
             orderDTO.setOrderId(orderId);
-            OrderCreateMessage orderCreateMessage = buildOrderCreateMessage(orderDTO);
+            orderCreateMessage = buildOrderCreateMessage(orderDTO);
 
             for (Map.Entry<Long, List<Long>> entry : orderDTO.getProducts().entrySet()) {
                 Long productId = entry.getKey();
+                if (entry.getValue() == null || entry.getValue().isEmpty() || entry.getValue().get(0) == null
+                        || entry.getValue().get(0) <= 0) {
+                    throw new ServiceException("购买数量必须大于 0");
+                }
                 Long quantity = entry.getValue().get(0);
                 deductQuantities.put(productId, quantity);
-                Object redisStock = redisTemplate.opsForValue().get(GOODS_PRE_DEDUCTION.getValue() + productId);
-                Object stockExist = redisTemplate.opsForValue().get(GOODS_IS_EXIST.getValue() + productId);
+                String productPreheatKey = PRODUCT_PREHEAT_HASH.getValue() + productId;
+                Object redisStock = redisTemplate.opsForHash().get(productPreheatKey, "stock");
+                Object stockExist = redisTemplate.opsForHash().get(productPreheatKey, "exists");
+                if (redisStock == null) {
+                    redisStock = redisTemplate.opsForValue().get(GOODS_PRE_DEDUCTION.getValue() + productId);
+                }
+                if (stockExist == null) {
+                    stockExist = redisTemplate.opsForValue().get(GOODS_IS_EXIST.getValue() + productId);
+                }
 
                 if (stockExist == null || "0".equals(String.valueOf(stockExist)) || redisStock == null || Long.parseLong(String.valueOf(redisStock)) <= 0) {
+                    redisTemplate.opsForHash().put(productPreheatKey, "exists", "0");
                     redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + productId, 0, RedisExpirationTime.EXPIRATION_TIME.getTimeout());
                     rollbackRedisStock(successDeductProductIds, deductQuantities);
                     redisTemplate.delete(idempotentKey);
@@ -86,7 +117,12 @@ public class OrderServiceImpl implements IOrderService {
                 }
 
                 Long stockResult = redisTemplate.execute(stockDeductScript,
-                        Collections.singletonList(GOODS_PRE_DEDUCTION.getValue() + productId), String.valueOf(quantity));
+                        List.of(
+                                productPreheatKey,
+                                GOODS_PRE_DEDUCTION.getValue() + productId,
+                                GOODS_IS_EXIST.getValue() + productId
+                        ),
+                        String.valueOf(quantity));
 
                 if(stockResult == -1){
                     rollbackRedisStock(successDeductProductIds, deductQuantities);
@@ -94,7 +130,6 @@ public class OrderServiceImpl implements IOrderService {
                     return Result.fail("商品不存在或未预热");
                 }
                 if(stockResult == 0){
-                    redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + productId, 0, RedisExpirationTime.EXPIRATION_TIME.getTimeout());
                     rollbackRedisStock(successDeductProductIds, deductQuantities);
                     redisTemplate.delete(idempotentKey);
                     return Result.fail("手慢了，库存不足！");
@@ -102,6 +137,9 @@ public class OrderServiceImpl implements IOrderService {
                 // 扣减成功，加入记录
                 successDeductProductIds.add(productId);
             }
+
+            reserveCouponIfNeeded(orderCreateMessage);
+            couponReserved = hasCoupon(orderCreateMessage);
 
             rabbitTemplate.convertAndSend(
                     RabbitEventConstants.EVENT_EXCHANGE,
@@ -111,7 +149,13 @@ public class OrderServiceImpl implements IOrderService {
             return Result.success(orderId);
         }catch (Exception e){
             rollbackRedisStock(successDeductProductIds, deductQuantities);
+            if (couponReserved) {
+                releaseCouponReservation(orderCreateMessage, orderDTO.getUserId());
+            }
             redisTemplate.delete(idempotentKey);
+            if (e instanceof ServiceException serviceException) {
+                throw serviceException;
+            }
             throw new RuntimeException("系统下单失败",e);
         }
     }
@@ -132,6 +176,10 @@ public class OrderServiceImpl implements IOrderService {
 
         long totalAmount = 0L;
         for (Map.Entry<Long, List<Long>> entry : orderDTO.getProducts().entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isEmpty() || entry.getValue().get(0) == null
+                    || entry.getValue().get(0) <= 0) {
+                throw new ServiceException("购买数量必须大于 0");
+            }
             ProductSkuDTO sku = productSkuMap.get(entry.getKey());
             if (sku == null || sku.getPrice() == null || sku.getStatus() == null || sku.getStatus() != 1) {
                 throw new RuntimeException("商品不存在或已下架，productId=" + entry.getKey());
@@ -140,8 +188,16 @@ public class OrderServiceImpl implements IOrderService {
         }
 
         long freightAmount = orderDTO.getFreight() == null ? 0L : orderDTO.getFreight();
-        long discountAmount = orderDTO.getDiscountAmount() == null ? 0L : orderDTO.getDiscountAmount();
-        long payAmount = Math.max(0L, totalAmount + freightAmount - discountAmount);
+        long originalAmount = totalAmount + freightAmount;
+        ValidatedCouponSelection couponSelection = resolveCouponSelection(orderDTO, originalAmount);
+        long discountAmount = couponSelection.discountAmount();
+        long payAmount = originalAmount - discountAmount;
+        if (originalAmount > 0 && payAmount <= 0) {
+            discountAmount = originalAmount - 1L;
+            payAmount = 1L;
+        } else {
+            payAmount = Math.max(0L, payAmount);
+        }
 
         return OrderCreateMessage.builder()
                 .orderId(orderDTO.getOrderId())
@@ -157,17 +213,167 @@ public class OrderServiceImpl implements IOrderService {
                 .receiverAddress(orderDTO.getReceiverAddress())
                 .remark(orderDTO.getRemark())
                 .payChannel(orderDTO.getPayChannel())
-                .couponId(orderDTO.getCouponId())
-                .couponSegment(orderDTO.getCouponSegment())
-                .couponToken(orderDTO.getCouponToken())
+                .couponId(couponSelection.couponId())
+                .couponSegment(couponSelection.couponSegment())
+                .couponToken(couponSelection.couponToken())
                 .build();
     }
 
     // 私有方法用于回滚 Redis 库存
     private void rollbackRedisStock(List<Long> successDeductProductIds, Map<Long, Long> deductQuantities) {
         for (Long pid : successDeductProductIds) {
-            redisTemplate.opsForValue().increment(GOODS_PRE_DEDUCTION.getValue() + pid, deductQuantities.get(pid));
+            Long quantity = deductQuantities.get(pid);
+            String preheatKey = PRODUCT_PREHEAT_HASH.getValue() + pid;
+            redisTemplate.opsForHash().increment(preheatKey, "stock", quantity);
+            redisTemplate.opsForHash().put(preheatKey, "exists", "1");
+            redisTemplate.opsForValue().increment(GOODS_PRE_DEDUCTION.getValue() + pid, quantity);
+            redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + pid, 1, RedisExpirationTime.EXPIRATION_TIME.getTimeout());
         }
+    }
+
+    private void reserveCouponIfNeeded(OrderCreateMessage orderCreateMessage) {
+        if (!hasCoupon(orderCreateMessage)) {
+            return;
+        }
+        Long result = redisTemplate.execute(
+                COUPON_RESERVE_SCRIPT,
+                List.of(
+                        COUPON_RESERVED.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_TOKEN_HASH.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_SET.getValue() + orderCreateMessage.getCouponId()
+                ),
+                String.valueOf(orderCreateMessage.getUserId()),
+                orderCreateMessage.getCouponToken(),
+                String.valueOf(orderCreateMessage.getOrderId())
+        );
+        if (Long.valueOf(1L).equals(result)) {
+            return;
+        }
+        if (Long.valueOf(-1L).equals(result) || Long.valueOf(-2L).equals(result)) {
+            Long recoverResult = recoverCouponReservationFromDb(orderCreateMessage);
+            if (Long.valueOf(1L).equals(recoverResult)) {
+                return;
+            }
+            if (Long.valueOf(0L).equals(recoverResult)) {
+                throw new ServiceException("当前优惠券已经被占用，请重新选择");
+            }
+            throw new ServiceException("优惠券不属于当前用户或已失效，请重新选择");
+        }
+        if (Long.valueOf(0L).equals(result)) {
+            throw new ServiceException("当前优惠券已经被占用，请重新选择");
+        }
+        throw new ServiceException("优惠券预占失败，请稍后重试");
+    }
+
+    private Long recoverCouponReservationFromDb(OrderCreateMessage orderCreateMessage) {
+        CouponRecord couponRecord = couponRecordMapper.selectByUserIdAndCouponToken(
+                orderCreateMessage.getUserId(),
+                orderCreateMessage.getCouponToken()
+        );
+        if (couponRecord == null || !Objects.equals(couponRecord.getCouponId(), orderCreateMessage.getCouponId())
+                || couponRecord.getStatus() == null || couponRecord.getStatus() != 0
+                || couponRecord.getOrderId() != null || couponRecord.getSegmentIndex() == null) {
+            return -1L;
+        }
+
+        String claimJson = JSONUtil.toJsonStr(CouponPreheatVO.builder()
+                .couponId(couponRecord.getCouponId())
+                .userId(couponRecord.getUserId())
+                .segment(couponRecord.getSegmentIndex())
+                .couponToken(couponRecord.getCouponToken())
+                .build());
+        return redisTemplate.execute(
+                COUPON_RECOVER_RESERVE_SCRIPT,
+                List.of(
+                        COUPON_RESERVED.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_TOKEN_HASH.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_SET.getValue() + orderCreateMessage.getCouponId()
+                ),
+                String.valueOf(orderCreateMessage.getUserId()),
+                orderCreateMessage.getCouponToken(),
+                claimJson
+        );
+    }
+
+    private void releaseCouponReservation(OrderCreateMessage orderCreateMessage, Long userId) {
+        if (orderCreateMessage == null || orderCreateMessage.getCouponId() == null
+                || orderCreateMessage.getCouponToken() == null || orderCreateMessage.getCouponToken().isBlank()
+                || userId == null) {
+            return;
+        }
+        redisTemplate.execute(
+                COUPON_RELEASE_SCRIPT,
+                List.of(
+                        COUPON_RESERVED.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_TOKEN_HASH.getValue() + orderCreateMessage.getCouponId(),
+                        COUPON_USER_SET.getValue() + orderCreateMessage.getCouponId()
+                ),
+                String.valueOf(userId),
+                orderCreateMessage.getCouponToken()
+        );
+    }
+
+    private boolean hasCoupon(OrderCreateMessage orderCreateMessage) {
+        return orderCreateMessage != null
+                && orderCreateMessage.getCouponId() != null
+                && orderCreateMessage.getCouponToken() != null
+                && !orderCreateMessage.getCouponToken().isBlank();
+    }
+
+    private static DefaultRedisScript<Long> buildCouponReserveScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setResultType(Long.class);
+        script.setScriptText("""
+                local claim = redis.call('hget', KEYS[2], ARGV[1])
+                if (claim == false or claim == nil) then
+                    return -1
+                end
+                if redis.call('sismember', KEYS[3], ARGV[1]) == 0 then
+                    return -1
+                end
+                if string.find(tostring(claim), tostring(ARGV[2]), 1, true) == nil then
+                    return -2
+                end
+                if redis.call('hexists', KEYS[1], ARGV[2]) == 1 then
+                    return 0
+                end
+                redis.call('hset', KEYS[1], ARGV[2], claim)
+                redis.call('hdel', KEYS[2], ARGV[1])
+                redis.call('srem', KEYS[3], ARGV[1])
+                return 1
+                """);
+        return script;
+    }
+
+    private static DefaultRedisScript<Long> buildCouponReleaseScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setResultType(Long.class);
+        script.setScriptText("""
+                local claim = redis.call('hget', KEYS[1], ARGV[2])
+                if (claim == false or claim == nil) then
+                    return 0
+                end
+                redis.call('hset', KEYS[2], ARGV[1], claim)
+                redis.call('sadd', KEYS[3], ARGV[1])
+                redis.call('hdel', KEYS[1], ARGV[2])
+                return 1
+                """);
+        return script;
+    }
+
+    private static DefaultRedisScript<Long> buildCouponRecoverReserveScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setResultType(Long.class);
+        script.setScriptText("""
+                if redis.call('hexists', KEYS[1], ARGV[2]) == 1 then
+                    return 0
+                end
+                redis.call('hset', KEYS[1], ARGV[2], ARGV[3])
+                redis.call('hdel', KEYS[2], ARGV[1])
+                redis.call('srem', KEYS[3], ARGV[1])
+                return 1
+                """);
+        return script;
     }
 
     @Override
@@ -201,9 +407,14 @@ public class OrderServiceImpl implements IOrderService {
             return Result.fail("订单不存在");
         }
         List<OrderItem> items = orderItemMapper.selectByOrderIdAndUserId(orderId, userId);
+        OrderCouponVO coupon = couponRecordMapper.selectCouponDetailByOrderId(orderId);
+        if (coupon != null) {
+            coupon.setDiscountAmount(order.getDiscountAmount());
+        }
         return Result.success(OrderViewVO.builder()
                 .order(order)
                 .items(items)
+                .coupon(coupon)
                 .build());
     }
 
@@ -228,7 +439,7 @@ public class OrderServiceImpl implements IOrderService {
     @Transactional(rollbackFor = Exception.class)
     public Result<Void> refundUserOrder(Long userId, Long orderId) {
         Order order = requireOwnedOrder(userId, orderId);
-        if (!List.of(OrderStatic.PAID.getCode(), OrderStatic.SHIPPED.getCode(), OrderStatic.COMPLETED.getCode())
+        if (!List.of(OrderStatic.PAID.getCode(), OrderStatic.SHIPPED.getCode())
                 .contains(order.getStatus())) {
             throw new ServiceException("当前订单状态暂不支持申请退货退款");
         }
@@ -270,17 +481,8 @@ public class OrderServiceImpl implements IOrderService {
             return;
         }
 
-        for (OrderItem item : items) {
-            redisTemplate.opsForValue().increment(GOODS_PRE_DEDUCTION.getValue() + item.getProductId(), item.getQuantity());
-            redisTemplate.opsForValue().set(
-                    GOODS_IS_EXIST.getValue() + item.getProductId(),
-                    1,
-                    RedisExpirationTime.EXPIRATION_TIME.getTimeout()
-            );
-        }
-
-        rabbitTemplate.convertAndSend(
-                RabbitEventConstants.EVENT_EXCHANGE,
+        insertLocalMessage(
+                order.getUserId(),
                 MsgTopic.TOPIC_RESTORE_STOCK.getTopic(),
                 JSONUtil.toJsonStr(OrderWithProduct.builder()
                         .orderId(order.getOrderId())
@@ -331,6 +533,78 @@ public class OrderServiceImpl implements IOrderService {
         int insertRow = msgMapper.insertMsg(msg);
         if (insertRow <= 0) {
             throw new ServiceException("消息写入失败，请稍后重试");
+        }
+    }
+
+    private ValidatedCouponSelection resolveCouponSelection(OrderDTO orderDTO, long orderAmount) {
+        if (orderDTO == null) {
+            return ValidatedCouponSelection.empty();
+        }
+
+        boolean hasCouponId = orderDTO.getCouponId() != null;
+        boolean hasCouponToken = orderDTO.getCouponToken() != null && !orderDTO.getCouponToken().isBlank();
+        if (!hasCouponId && !hasCouponToken) {
+            return ValidatedCouponSelection.empty();
+        }
+        if (!hasCouponId || !hasCouponToken) {
+            throw new ServiceException("优惠券参数不完整，请重新选择优惠券后再下单");
+        }
+
+        CouponRecord couponRecord = couponRecordMapper.selectByUserIdAndCouponToken(orderDTO.getUserId(), orderDTO.getCouponToken());
+        if (couponRecord == null) {
+            throw new ServiceException("优惠券不存在或不属于当前用户");
+        }
+        if (!Objects.equals(couponRecord.getCouponId(), orderDTO.getCouponId())) {
+            throw new ServiceException("优惠券信息不匹配，请重新选择优惠券");
+        }
+        if (orderDTO.getCouponSegment() != null && !Objects.equals(couponRecord.getSegmentIndex(), orderDTO.getCouponSegment())) {
+            throw new ServiceException("优惠券分段信息已失效，请重新选择优惠券");
+        }
+        if (couponRecord.getStatus() == null || couponRecord.getStatus() != 0 || couponRecord.getOrderId() != null) {
+            throw new ServiceException("当前优惠券已经被使用或锁定，请重新选择");
+        }
+
+        Coupon coupon = couponMapper.selectCoupon(orderDTO.getCouponId());
+        if (coupon == null || coupon.getStatus() == null || coupon.getStatus() != 1) {
+            throw new ServiceException("优惠券已失效，请重新选择");
+        }
+
+        Date now = new Date();
+        if (coupon.getStartTime() != null && now.before(coupon.getStartTime())) {
+            throw new ServiceException("优惠券活动尚未开始");
+        }
+        if (coupon.getEndTime() != null && now.after(coupon.getEndTime())) {
+            throw new ServiceException("优惠券活动已结束");
+        }
+
+        long threshold = toMinorUnits(coupon.getMinPoint());
+        if (orderAmount < threshold) {
+            throw new ServiceException("当前订单金额未达到优惠券使用门槛");
+        }
+
+        long discountAmount = Math.min(orderAmount, toMinorUnits(coupon.getAmount()));
+        if (discountAmount <= 0) {
+            throw new ServiceException("当前优惠券抵扣金额异常，请重新选择");
+        }
+
+        return new ValidatedCouponSelection(
+                coupon.getId(),
+                couponRecord.getSegmentIndex(),
+                couponRecord.getCouponToken(),
+                discountAmount
+        );
+    }
+
+    private long toMinorUnits(BigDecimal amount) {
+        if (amount == null) {
+            return 0L;
+        }
+        return amount.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValue();
+    }
+
+    private record ValidatedCouponSelection(Long couponId, Integer couponSegment, String couponToken, Long discountAmount) {
+        private static ValidatedCouponSelection empty() {
+            return new ValidatedCouponSelection(null, null, "", 0L);
         }
     }
 }

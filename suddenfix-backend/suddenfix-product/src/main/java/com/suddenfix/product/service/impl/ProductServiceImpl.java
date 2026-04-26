@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 
 import static com.suddenfix.common.enums.RedisPreMessage.GOODS_IS_EXIST;
 import static com.suddenfix.common.enums.RedisPreMessage.GOODS_PRE_DEDUCTION;
+import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_PREHEAT_HASH;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_DETAIL;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_RECOMMEND;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_SEARCH;
@@ -362,6 +363,12 @@ public class ProductServiceImpl implements IProductService {
         long stock = Math.max(product.getStock() == null ? 0 : product.getStock(), 0);
         boolean online = product.getStatus() == null || product.getStatus() == 1;
         long availableStock = online ? stock : 0;
+        String preheatKey = PRODUCT_PREHEAT_HASH.getValue() + product.getId();
+        redisTemplate.opsForHash().put(preheatKey, "productId", String.valueOf(product.getId()));
+        redisTemplate.opsForHash().put(preheatKey, "stock", String.valueOf(availableStock));
+        redisTemplate.opsForHash().put(preheatKey, "exists", availableStock > 0 ? "1" : "0");
+        redisTemplate.opsForHash().put(preheatKey, "status", String.valueOf(product.getStatus() == null ? 1 : product.getStatus()));
+        redisTemplate.expire(preheatKey, 1, TimeUnit.DAYS);
         redisTemplate.opsForValue().set(GOODS_PRE_DEDUCTION.getValue() + product.getId(), availableStock, 1, TimeUnit.DAYS);
         redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + product.getId(), availableStock > 0 ? 1 : 0, 1, TimeUnit.DAYS);
         if (online) {

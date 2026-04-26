@@ -15,6 +15,8 @@ const shipping = ref(null);
 
 const order = computed(() => detail.value?.order || null);
 const items = computed(() => detail.value?.items || []);
+const coupon = computed(() => detail.value?.coupon || null);
+const originalAmount = computed(() => Number(order.value?.totalAmount || 0) + Number(order.value?.freightAmount || 0));
 
 function canCancel() {
   return Number(order.value?.status) === 10;
@@ -119,12 +121,27 @@ onMounted(loadDetail);
         <div class="info-grid">
           <div><span>订单编号</span><strong>{{ order.orderNo || order.orderId }}</strong></div>
           <div><span>下单时间</span><strong>{{ order.createTime || '--' }}</strong></div>
+          <div><span>原始金额</span><strong>{{ formatCurrency(originalAmount) }}</strong></div>
           <div><span>支付金额</span><strong>{{ formatCurrency(order.payAmount) }}</strong></div>
+          <div><span>商品总额</span><strong>{{ formatCurrency(order.totalAmount) }}</strong></div>
+          <div><span>运费</span><strong>{{ formatCurrency(order.freightAmount) }}</strong></div>
+          <div><span>优惠抵扣</span><strong>{{ formatCurrency(order.discountAmount) }}</strong></div>
           <div><span>支付渠道</span><strong>{{ order.payChannel === 1 ? '支付宝' : '其他' }}</strong></div>
           <div><span>收货人</span><strong>{{ order.receiverName || '--' }}</strong></div>
           <div><span>手机号</span><strong>{{ order.receiverPhone || '--' }}</strong></div>
           <div class="full"><span>收货地址</span><strong>{{ order.receiverAddress || '--' }}</strong></div>
           <div class="full"><span>备注</span><strong>{{ order.remark || '无' }}</strong></div>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="detail-card">
+        <template #header>优惠券信息</template>
+        <div class="info-grid">
+          <div><span>优惠券名称</span><strong>{{ coupon?.name || '未使用优惠券' }}</strong></div>
+          <div><span>优惠金额</span><strong>{{ formatCurrency(coupon?.discountAmount || order?.discountAmount) }}</strong></div>
+          <div><span>优惠券面额</span><strong>{{ coupon ? formatCurrency(Math.round(Number(coupon.amount || 0) * 100)) : '--' }}</strong></div>
+          <div><span>使用门槛</span><strong>{{ coupon ? formatCurrency(Math.round(Number(coupon.minPoint || 0) * 100)) : '--' }}</strong></div>
+          <div class="full"><span>优惠券码</span><strong>{{ coupon?.couponToken || '--' }}</strong></div>
         </div>
       </el-card>
 

@@ -14,6 +14,8 @@ public interface IPayService {
 
     String createAlipayPage(Long orderId, Long userId);
 
+    String buildPaySuccessPage(Long orderId, String outTradeNo);
+
     String handleAlipayNotify(Map<String, String> params);
 
     void refundPay(String outTradeNo, Long refundAmount, Long orderId);

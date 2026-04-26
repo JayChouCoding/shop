@@ -8,12 +8,14 @@ import com.suddenfix.common.dto.PaySuccessMessage;
 import com.suddenfix.common.enums.MsgStatus;
 import com.suddenfix.common.enums.MsgTopic;
 import com.suddenfix.common.enums.OrderStatic;
+import com.suddenfix.common.exception.ServiceException;
 import com.suddenfix.common.utils.GeneIdGenerator;
 import com.suddenfix.order.config.OrderEventRabbitConfig;
 import com.suddenfix.order.domain.pojo.CouponRecord;
 import com.suddenfix.order.domain.pojo.Msg;
 import com.suddenfix.order.domain.pojo.Order;
 import com.suddenfix.order.domain.pojo.OrderItem;
+import com.suddenfix.order.domain.pojo.OrderWithProduct;
 import com.suddenfix.order.mapper.CouponRecordMapper;
 import com.suddenfix.order.mapper.MsgMapper;
 import com.suddenfix.order.mapper.OrderItemMapper;
@@ -29,7 +31,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static com.suddenfix.common.enums.RedisPreMessage.GOODS_PRE_DEDUCTION;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_RESERVED;
 import static com.suddenfix.common.enums.RedisPreMessage.ORDER_PAY_COMPENSATE;
 import static com.suddenfix.common.enums.RedisPreMessage.ORDER_STOCK_RESTORED;
 
@@ -64,7 +66,16 @@ public class PaySuccessListener {
         if (OrderStatic.PENDING_PAYMENT.getCode().equals(order.getStatus())) {
             int updateRow = orderMapper.updateOrderStatusToPaid(orderId, outTradeNo);
             if (updateRow > 0) {
-                couponRecordMapper.markCouponUsedByOrderId(orderId);
+                CouponRecord couponRecord = couponRecordMapper.selectByOrderId(orderId);
+                if (couponRecord != null) {
+                    int couponUpdated = couponRecord.getStatus() != null && couponRecord.getStatus() == 1
+                            ? 1
+                            : couponRecordMapper.markCouponUsedByOrderId(orderId);
+                    if (couponUpdated <= 0) {
+                        throw new ServiceException("订单支付成功，但优惠券核销失败，事务已回滚等待重试");
+                    }
+                    redisTemplate.opsForHash().delete(COUPON_RESERVED.getValue() + couponRecord.getCouponId(), couponRecord.getCouponToken());
+                }
                 insertLocalMessage(order.getUserId(), MsgTopic.TOPIC_ORDER_PAID.getTopic(), JSONUtil.toJsonStr(
                         OrderPaidMessage.builder()
                                 .orderId(orderId)
@@ -96,15 +107,18 @@ public class PaySuccessListener {
         String restoredKey = ORDER_STOCK_RESTORED.getValue() + orderId;
         if (!Boolean.TRUE.equals(redisTemplate.hasKey(restoredKey))) {
             List<OrderItem> items = orderItemMapper.selectByOrderIdAndUserId(orderId, order.getUserId());
-            for (OrderItem item : items) {
-                String stockKey = GOODS_PRE_DEDUCTION.getValue() + item.getProductId();
-                if (Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
-                    redisTemplate.opsForValue().increment(stockKey, item.getQuantity());
-                } else {
-                    redisTemplate.opsForValue().set(stockKey, item.getQuantity(), 1, TimeUnit.DAYS);
-                }
-            }
-            redisTemplate.opsForValue().set(restoredKey, "1", 1, TimeUnit.DAYS);
+            insertLocalMessage(order.getUserId(), MsgTopic.TOPIC_RESTORE_STOCK.getTopic(), JSONUtil.toJsonStr(
+                    OrderWithProduct.builder()
+                            .orderId(orderId)
+                            .orderNo(order.getOrderNo())
+                            .userId(order.getUserId())
+                            .payAmount(order.getPayAmount())
+                            .status(order.getStatus())
+                            .payChannel(order.getPayChannel())
+                            .productIds(items.stream().map(OrderItem::getProductId).toList())
+                            .productQuantities(items.stream().map(OrderItem::getQuantity).toList())
+                            .build()
+            ));
         }
 
         insertLocalMessage(order.getUserId(), MsgTopic.TOPIC_PAY_REFUND.getTopic(), JSONUtil.toJsonStr(

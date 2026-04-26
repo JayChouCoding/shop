@@ -10,7 +10,7 @@ import java.util.List;
 public interface OrderMapper {
     int insertOrder(Order order);
 
-    int updateOrderStatusToPendingPayment(@Param("orderId") Long orderId);
+    int updateOrderStatusToPendingPayment(@Param("orderId") Long orderId, @Param("outTradeNo") String outTradeNo);
 
     int updateOrderStatusToPaid(@Param("orderId") Long orderId,@Param("outTradeNo") String outTradeNo);
 

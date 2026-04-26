@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { cartApi, couponApi, orderApi, payApi, userApi } from '../api/services';
@@ -37,6 +37,9 @@ const selectedItems = computed(() =>
 );
 
 const freightAmount = computed(() => (selectedItems.value.length ? 1200 : 0));
+const couponQueryAmount = computed(() =>
+  Math.max(0, Number(cart.value.selectedAmount || 0) + Number(freightAmount.value || 0))
+);
 const selectedCoupon = computed(() =>
   userCoupons.value.find((item) => item.couponToken === selectedCouponToken.value) || null
 );
@@ -46,15 +49,14 @@ function toMinorUnits(value) {
   return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
 }
 
-const selectedCouponThreshold = computed(() => toMinorUnits(selectedCoupon.value?.minPoint));
 const selectedCouponDiscount = computed(() => {
   if (!selectedCoupon.value) {
     return 0;
   }
-  if (cart.value.selectedAmount < selectedCouponThreshold.value) {
+  if (!selectedCoupon.value.available) {
     return 0;
   }
-  return toMinorUnits(selectedCoupon.value.amount);
+  return Number(selectedCoupon.value.estimatedDiscountAmount || 0);
 });
 const payableAmount = computed(() =>
   Math.max(0, cart.value.selectedAmount + freightAmount.value - selectedCouponDiscount.value)
@@ -137,12 +139,19 @@ async function clearSelected() {
   }
 }
 
-async function loadUserCoupons() {
+async function loadCheckoutCoupons(orderAmount = couponQueryAmount.value) {
+  if (!orderAmount) {
+    userCoupons.value = [];
+    selectedCouponToken.value = '';
+    return;
+  }
   couponLoading.value = true;
   try {
-    userCoupons.value = (await couponApi.my()) || [];
+    userCoupons.value = (await couponApi.checkoutAvailable(orderAmount)) || [];
     if (selectedCouponToken.value) {
-      const stillExists = userCoupons.value.some((item) => item.couponToken === selectedCouponToken.value);
+      const stillExists = userCoupons.value.some(
+        (item) => item.couponToken === selectedCouponToken.value && item.available
+      );
       if (!stillExists) {
         selectedCouponToken.value = '';
       }
@@ -182,11 +191,6 @@ async function submitOrder() {
     ElMessage.warning('请先填写收货信息');
     return;
   }
-  if (selectedCoupon.value && selectedCouponDiscount.value <= 0) {
-    ElMessage.warning('当前已选优惠券还未达到使用门槛，请先取消或补充商品后再提交。');
-    return;
-  }
-
   submitting.value = true;
   let handedOff = false;
   try {
@@ -229,7 +233,7 @@ async function submitOrder() {
 
     cartApi.clearChecked(selectedItems.value.map((item) => item.productId)).catch(() => {});
     if (selectedCoupon.value) {
-      loadUserCoupons().catch(() => {});
+      loadCheckoutCoupons().catch(() => {});
       selectedCouponToken.value = '';
     }
 
@@ -254,8 +258,16 @@ async function submitOrder() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCart(), loadAddresses(), loadUserCoupons()]);
+  await Promise.all([loadCart(), loadAddresses()]);
 });
+
+watch(
+  couponQueryAmount,
+  (amount) => {
+    loadCheckoutCoupons(amount).catch(() => {});
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
@@ -355,15 +367,16 @@ onMounted(async () => {
             v-for="coupon in userCoupons"
             :key="coupon.couponToken"
             class="coupon-option"
-            :class="{ active: selectedCouponToken === coupon.couponToken }"
+            :class="{ active: selectedCouponToken === coupon.couponToken, disabled: !coupon.available }"
           >
-            <input v-model="selectedCouponToken" type="radio" :value="coupon.couponToken" />
+            <input v-model="selectedCouponToken" type="radio" :value="coupon.couponToken" :disabled="!coupon.available" />
             <div>
               <strong>{{ coupon.name }}</strong>
               <p>
                 立减 {{ formatCurrency(toMinorUnits(coupon.amount)) }}
                 <span>· {{ Number(coupon.minPoint || 0) > 0 ? `满 ${formatCurrency(toMinorUnits(coupon.minPoint))} 可用` : '无门槛' }}</span>
               </p>
+              <small v-if="!coupon.available">{{ coupon.unavailableReason }}</small>
             </div>
           </label>
 
@@ -443,6 +456,11 @@ onMounted(async () => {
   transform: translateY(-1px);
 }
 
+.coupon-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .coupon-option input {
   margin-top: 5px;
 }
@@ -454,5 +472,11 @@ onMounted(async () => {
 .coupon-option p {
   margin: 6px 0 0;
   color: #8b624b;
+}
+
+.coupon-option small {
+  display: block;
+  margin-top: 6px;
+  color: #b06742;
 }
 </style>

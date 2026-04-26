@@ -21,9 +21,13 @@ import java.util.concurrent.TimeUnit;
 
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_DB_DEDUCTED;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_DETAIL;
+import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_PREHEAT_HASH;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_RECOMMEND;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_RESTORE_IDEMPOTENT;
 import static com.suddenfix.common.enums.RedisPreMessage.PRODUCT_SEARCH;
+import static com.suddenfix.common.enums.RedisPreMessage.GOODS_PRE_DEDUCTION;
+import static com.suddenfix.common.enums.RedisPreMessage.GOODS_IS_EXIST;
+import static com.suddenfix.common.enums.RedisPreMessage.ORDER_STOCK_RESTORED;
 
 @Slf4j
 @Component
@@ -81,6 +85,7 @@ public class RestoreStockListener {
 
                     if (updateRow > 0) {
                         Product afterProduct = productMapper.selectById(productId);
+                        syncRedisStockAfterRestore(productId, quantity, true);
                         stockFlowMapper.insert(StockFlow.builder()
                                 .flowId(GeneIdGenerator.generatorId(productId))
                                 .productId(productId)
@@ -103,10 +108,11 @@ public class RestoreStockListener {
                         log.error("【商品服务】商品 {} 恢复数据库库存失败", productId);
                     }
                 } else {
-                    // 当初乐观锁失败没扣，或者消息还没消费，直接跳过，防止凭空变出库存！
+                    syncRedisStockAfterRestore(productId, quantity, false);
                     log.info("【商品服务】商品 {} 当初并未在DB扣减成功，无需恢复库存", productId);
                 }
             }
+            redisTemplate.opsForValue().set(ORDER_STOCK_RESTORED.getValue() + orderId, "1", 7, TimeUnit.DAYS);
 
         } catch (Exception e) {
             log.error("【商品服务】恢复库存处理异常，准备重试", e);
@@ -125,5 +131,20 @@ public class RestoreStockListener {
         if (keys != null && !keys.isEmpty()) {
             redisTemplate.delete(keys);
         }
+    }
+
+    private void syncRedisStockAfterRestore(Long productId, Long quantity, boolean dbDeducted) {
+        String preheatKey = PRODUCT_PREHEAT_HASH.getValue() + productId;
+        if (dbDeducted) {
+            redisTemplate.opsForHash().increment(preheatKey, "stock", quantity);
+            redisTemplate.opsForHash().put(preheatKey, "exists", "1");
+            redisTemplate.opsForValue().increment(GOODS_PRE_DEDUCTION.getValue() + productId, quantity);
+            redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + productId, 1, 7, TimeUnit.DAYS);
+            return;
+        }
+        redisTemplate.opsForHash().put(preheatKey, "stock", "0");
+        redisTemplate.opsForHash().put(preheatKey, "exists", "0");
+        redisTemplate.opsForValue().set(GOODS_PRE_DEDUCTION.getValue() + productId, 0L, 7, TimeUnit.DAYS);
+        redisTemplate.opsForValue().set(GOODS_IS_EXIST.getValue() + productId, 0, 7, TimeUnit.DAYS);
     }
 }

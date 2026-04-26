@@ -8,6 +8,7 @@ import CartCheckoutView from '../views/CartCheckoutView.vue';
 import OrderProcessingView from '../views/OrderProcessingView.vue';
 import OrderListView from '../views/OrderList.vue';
 import OrderDetailView from '../views/OrderDetailView.vue';
+import PaySuccessView from '../views/PaySuccessView.vue';
 import AdminDashboardView from '../views/AdminDashboardView.vue';
 import CouponCenterView from '../views/CouponCenterView.vue';
 
@@ -59,6 +60,11 @@ const router = createRouter({
       name: 'order-processing',
       component: OrderProcessingView,
       meta: { requiresAuth: true, requiresRole: 0 }
+    },
+    {
+      path: '/pay/success',
+      name: 'pay-success',
+      component: PaySuccessView
     },
     {
       path: '/account',

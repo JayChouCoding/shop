@@ -1,26 +1,31 @@
 package com.suddenfix.order.listener;
 
 import cn.hutool.json.JSONUtil;
-import com.suddenfix.common.constants.RabbitEventConstants;
+import com.suddenfix.common.dto.CouponRollbackMessage;
+import com.suddenfix.common.enums.MsgStatus;
 import com.suddenfix.common.enums.OrderStatic;
+import com.suddenfix.common.utils.GeneIdGenerator;
 import com.suddenfix.order.config.OrderEventRabbitConfig;
+import com.suddenfix.order.domain.pojo.CouponRecord;
+import com.suddenfix.order.domain.pojo.Msg;
 import com.suddenfix.order.domain.pojo.Order;
 import com.suddenfix.order.domain.pojo.OrderItem;
 import com.suddenfix.order.domain.pojo.OrderWithProduct;
+import com.suddenfix.order.mapper.CouponRecordMapper;
+import com.suddenfix.order.mapper.MsgMapper;
 import com.suddenfix.order.mapper.OrderItemMapper;
 import com.suddenfix.order.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.suddenfix.common.enums.MsgTopic.TOPIC_COUPON_ROLLBACK;
 import static com.suddenfix.common.enums.MsgTopic.TOPIC_RESTORE_STOCK;
 
 @Slf4j
@@ -30,7 +35,8 @@ public class OrderCancelCompensateListener {
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
-    private final RabbitTemplate rabbitTemplate;
+    private final CouponRecordMapper couponRecordMapper;
+    private final MsgMapper msgMapper;
 
     @RabbitListener(queues = OrderEventRabbitConfig.ORDER_CANCEL_COMPENSATE_QUEUE)
     @Transactional(rollbackFor = Exception.class)
@@ -73,22 +79,37 @@ public class OrderCancelCompensateListener {
             restoreMsg.setProductIds(productIds);
             restoreMsg.setProductQuantities(quantities);
 
-            // 6. 使用事务同步器，确保 DB 更新真正 Commit 之后，再发送 RabbitMQ 消息给商品服务
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    rabbitTemplate.convertAndSend(
-                            RabbitEventConstants.EVENT_EXCHANGE,
-                            TOPIC_RESTORE_STOCK.getTopic(),
-                            JSONUtil.toJsonStr(restoreMsg)
-                    );
-                    log.info("【订单补偿系统】已发送全量商品恢复真实库存指令, orderId: {}", orderId);
-                }
-            });
+            insertLocalMessage(order.getUserId(), TOPIC_RESTORE_STOCK.getTopic(), JSONUtil.toJsonStr(restoreMsg));
+
+            CouponRecord couponRecord = couponRecordMapper.selectByOrderId(orderId);
+            if (couponRecord != null && couponRecord.getCouponId() != null
+                    && couponRecord.getCouponToken() != null && couponRecord.getSegmentIndex() != null) {
+                insertLocalMessage(order.getUserId(), TOPIC_COUPON_ROLLBACK.getTopic(), JSONUtil.toJsonStr(
+                        CouponRollbackMessage.builder()
+                                .orderId(orderId)
+                                .userId(order.getUserId())
+                                .couponId(couponRecord.getCouponId())
+                                .segment(couponRecord.getSegmentIndex())
+                                .couponToken(couponRecord.getCouponToken())
+                                .build()
+                ));
+            }
 
         } catch (Exception e) {
             log.error("【订单补偿系统】处理超卖补偿异常，准备重试, orderId: {}", payload, e);
             throw e;
         }
+    }
+
+    private void insertLocalMessage(Long userId, String topic, String payload) {
+        msgMapper.insertMsg(Msg.builder()
+                .msgId(GeneIdGenerator.generatorId(userId))
+                .businessId(GeneIdGenerator.generatorId(userId))
+                .topic(topic)
+                .payload(payload)
+                .status(MsgStatus.PENDING_SENDING.getStatus())
+                .retryCount(0)
+                .nextRetryTime(new Date())
+                .build());
     }
 }

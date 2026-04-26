@@ -154,6 +154,21 @@ CREATE TABLE IF NOT EXISTS `t_stock_flow` (
   KEY `idx_stock_flow_product_time` (`product_id`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='product stock flow table';
 
+CREATE TABLE IF NOT EXISTS `t_local_msg` (
+  `msg_id` BIGINT NOT NULL COMMENT 'message id',
+  `business_id` BIGINT NOT NULL COMMENT 'business key',
+  `topic` VARCHAR(128) NOT NULL COMMENT 'routing topic',
+  `payload` TEXT NOT NULL COMMENT 'message payload',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-pending,1-sent,2-dead',
+  `retry_count` INT NOT NULL DEFAULT 0 COMMENT 'retry times',
+  `next_retry_time` DATETIME DEFAULT NULL COMMENT 'next retry time',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`msg_id`),
+  UNIQUE KEY `uk_product_msg_business` (`business_id`),
+  KEY `idx_product_msg_status_retry` (`status`, `next_retry_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='product local message table';
+
 -- =========================================
 -- Agent service
 -- =========================================

@@ -1,7 +1,6 @@
 package com.suddenfix.order.listener;
 
 import cn.hutool.json.JSONUtil;
-import com.suddenfix.common.constants.RabbitEventConstants;
 import com.suddenfix.common.dto.DeductionProductDTO;
 import com.suddenfix.common.dto.OrderCreateMessage;
 import com.suddenfix.common.dto.OrderCreatedMessage;
@@ -28,7 +27,6 @@ import com.suddenfix.order.config.OrderEventRabbitConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -58,7 +56,6 @@ public class OrderCreateListener {
     private final ProductFeign productFeign;
     private final OrderItemMapper orderItemMapper;
     private final CartService1 cartService1;
-    private final RabbitTemplate rabbitTemplate;
 
     @RabbitListener(queues = OrderEventRabbitConfig.ON_CREATE_QUEUE)
     @Transactional(rollbackFor = Exception.class)
@@ -86,6 +83,10 @@ public class OrderCreateListener {
 
         Long totalAmount = orderMessage.getProducts().entrySet().stream()
                 .mapToLong(entry -> {
+                    if (entry.getValue() == null || entry.getValue().isEmpty() || entry.getValue().get(0) == null
+                            || entry.getValue().get(0) <= 0) {
+                        throw new ServiceException("购买数量必须大于 0");
+                    }
                     ProductSkuDTO sku = productSkuMap.get(entry.getKey());
                     if (sku == null || sku.getStatus() == null || sku.getStatus() != 1) {
                         throw new ServiceException("商品不存在或已下架，productId=" + entry.getKey());
@@ -118,7 +119,10 @@ public class OrderCreateListener {
         }
 
         if (orderMessage.getCouponToken() != null && !orderMessage.getCouponToken().isBlank()) {
-            couponRecordMapper.bindOrderToCoupon(orderMessage.getUserId(), orderMessage.getCouponToken(), orderMessage.getOrderId());
+            int bindRow = couponRecordMapper.useCouponForOrder(orderMessage.getUserId(), orderMessage.getCouponToken(), orderMessage.getOrderId());
+            if (bindRow <= 0) {
+                throw new ServiceException("优惠券锁定失败，请重新选择优惠券后重试");
+            }
         }
 
         List<OrderItem> orderItemList = new ArrayList<>();
@@ -126,9 +130,16 @@ public class OrderCreateListener {
         List<Long> productQuantities = new ArrayList<>();
         long allocatedDiscount = 0L;
         int index = 0;
+        int discountAnchorIndex = totalAmount > 0 && discountAmountTotal >= totalAmount
+                ? new Random(orderMessage.getOrderId()).nextInt(orderMessage.getProducts().size())
+                : -1;
 
         for (Map.Entry<Long, List<Long>> entry : orderMessage.getProducts().entrySet()) {
             Long productId = entry.getKey();
+            if (entry.getValue() == null || entry.getValue().isEmpty() || entry.getValue().get(0) == null
+                    || entry.getValue().get(0) <= 0) {
+                throw new ServiceException("购买数量必须大于 0");
+            }
             Long quantity = entry.getValue().get(0);
             ProductSkuDTO productSku = productSkuMap.get(productId);
             if (productSku == null || productSku.getPrice() == null) {
@@ -136,12 +147,15 @@ public class OrderCreateListener {
             }
 
             Long itemTotal = quantity * productSku.getPrice();
-            Long discountAmount = index == orderMessage.getProducts().size() - 1
-                    ? discountAmountTotal - allocatedDiscount
-                    : itemTotal * discountAmountTotal / totalAmount;
-            if (discountAmount > itemTotal) {
-                discountAmount = itemTotal;
-            }
+            Long discountAmount = allocateItemDiscount(
+                    itemTotal,
+                    totalAmount,
+                    discountAmountTotal,
+                    allocatedDiscount,
+                    index,
+                    orderMessage.getProducts().size(),
+                    discountAnchorIndex
+            );
 
             orderItemList.add(OrderItem.builder()
                     .itemId(GeneIdGenerator.generatorId(orderMessage.getUserId()))
@@ -207,19 +221,46 @@ public class OrderCreateListener {
                 new Date(System.currentTimeMillis() + 15 * 60 * 1000L)
         );
 
+        for (DeductionProductDTO deductionProduct : deductionProducts) {
+            insertLocalMessage(
+                    orderMessage.getUserId(),
+                    TOPIC_STOCK_DEDUCTION.getTopic(),
+                    JSONUtil.toJsonStr(deductionProduct),
+                    new Date()
+            );
+        }
+
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 clearCheckedCart(orderMessage.getUserId(), productIds);
-                for (DeductionProductDTO deductionProduct : deductionProducts) {
-                    rabbitTemplate.convertAndSend(
-                            RabbitEventConstants.EVENT_EXCHANGE,
-                            TOPIC_STOCK_DEDUCTION.getTopic(),
-                            JSONUtil.toJsonStr(deductionProduct)
-                    );
-                }
             }
         });
+    }
+
+    private Long allocateItemDiscount(Long itemTotal,
+                                      Long totalAmount,
+                                      Long discountAmountTotal,
+                                      long allocatedDiscount,
+                                      int index,
+                                      int itemCount,
+                                      int discountAnchorIndex) {
+        if (itemTotal == null || itemTotal <= 0 || discountAmountTotal == null || discountAmountTotal <= 0
+                || totalAmount == null || totalAmount <= 0) {
+            return 0L;
+        }
+
+        if (discountAmountTotal >= totalAmount) {
+            if (index == discountAnchorIndex) {
+                return Math.max(0L, itemTotal - 1L);
+            }
+            return itemTotal;
+        }
+
+        Long discountAmount = index == itemCount - 1
+                ? discountAmountTotal - allocatedDiscount
+                : itemTotal * discountAmountTotal / totalAmount;
+        return Math.max(0L, Math.min(discountAmount, itemTotal));
     }
 
     private void insertLocalMessage(Long userId, String topic, String payload, Date nextRetryTime) {

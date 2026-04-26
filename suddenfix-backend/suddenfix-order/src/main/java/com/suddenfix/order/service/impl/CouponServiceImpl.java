@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_BITMAP;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_IS_EXIST;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_META;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_RESERVED;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_STOCK_SEGMENT;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_SET;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_TOKEN_HASH;
@@ -55,6 +56,7 @@ public class CouponServiceImpl implements ICouponService {
         redisTemplate.delete(metaKey(couponId));
         redisTemplate.delete(userBuy(couponId));
         redisTemplate.delete(userSet(couponId));
+        redisTemplate.delete(COUPON_RESERVED.getValue() + couponId);
         redisTemplate.delete(couponBitmap(couponId));
         redisTemplate.delete(stockISExist(couponId));
         for (int i = 0; i < segmentCount; i++) {
@@ -88,6 +90,7 @@ public class CouponServiceImpl implements ICouponService {
         redisTemplate.opsForHash().put(userBuy(couponId), "-1", "DUMMY");
         redisTemplate.expire(userSet(couponId), 1, TimeUnit.DAYS);
         redisTemplate.expire(userBuy(couponId), 1, TimeUnit.DAYS);
+        rebuildClaimedCouponState(couponId, segmentCount);
         return Result.success();
     }
 
@@ -355,16 +358,59 @@ public class CouponServiceImpl implements ICouponService {
         return COUPON_IS_EXIST.getValue() + couponId;
     }
 
+    private void rebuildClaimedCouponState(Long couponId, int segmentCount) {
+        List<com.suddenfix.order.domain.pojo.CouponRecord> records = couponRecordMapper.selectByCouponId(couponId);
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        String reservedKey = COUPON_RESERVED.getValue() + couponId;
+        for (com.suddenfix.order.domain.pojo.CouponRecord record : records) {
+            if (record.getCouponToken() == null || record.getCouponToken().isBlank() || record.getSegmentIndex() == null) {
+                continue;
+            }
+            redisTemplate.opsForList().remove(segmentStock(couponId, record.getSegmentIndex()), 1, record.getCouponToken());
+            if (record.getStatus() != null && record.getStatus() == 0) {
+                String claimJson = JSONUtil.toJsonStr(CouponPreheatVO.builder()
+                        .couponId(couponId)
+                        .segment(record.getSegmentIndex())
+                        .userId(record.getUserId())
+                        .couponToken(record.getCouponToken())
+                        .build());
+                if (record.getOrderId() == null) {
+                    redisTemplate.opsForSet().add(userSet(couponId), String.valueOf(record.getUserId()));
+                    redisTemplate.opsForHash().put(userBuy(couponId), String.valueOf(record.getUserId()), claimJson);
+                } else {
+                    redisTemplate.opsForHash().put(reservedKey, record.getCouponToken(), claimJson);
+                }
+            }
+        }
+        boolean hasAvailableStock = false;
+        for (int i = 0; i < segmentCount; i++) {
+            Long remain = redisTemplate.opsForList().size(segmentStock(couponId, i));
+            boolean bit = remain != null && remain > 0;
+            redisTemplate.opsForValue().setBit(couponBitmap(couponId), i, bit);
+            hasAvailableStock = hasAvailableStock || bit;
+        }
+        redisTemplate.opsForValue().set(stockISExist(couponId), hasAvailableStock ? 1 : 0, 1, TimeUnit.DAYS);
+    }
+
     private UserCouponVO enrichCheckoutCoupon(UserCouponVO coupon, long orderAmount) {
+        Date now = new Date();
         long threshold = toMinorUnits(coupon.getMinPoint());
         long estimatedDiscount = Math.min(orderAmount, toMinorUnits(coupon.getAmount()));
-        boolean available = orderAmount > 0 && orderAmount >= threshold && estimatedDiscount > 0;
+        boolean notStarted = coupon.getStartTime() != null && now.before(coupon.getStartTime());
+        boolean expired = coupon.getEndTime() != null && now.after(coupon.getEndTime());
+        boolean available = !notStarted && !expired && orderAmount > 0 && orderAmount >= threshold && estimatedDiscount > 0;
 
         coupon.setOrderAmount(orderAmount);
         coupon.setAvailable(available);
         coupon.setEstimatedDiscountAmount(available ? estimatedDiscount : 0L);
         if (available) {
             coupon.setUnavailableReason("");
+        } else if (notStarted) {
+            coupon.setUnavailableReason("优惠券未到使用时间");
+        } else if (expired) {
+            coupon.setUnavailableReason("优惠券已过期");
         } else if (orderAmount <= 0) {
             coupon.setUnavailableReason("当前订单金额为 0，暂不可使用");
         } else if (threshold > orderAmount) {

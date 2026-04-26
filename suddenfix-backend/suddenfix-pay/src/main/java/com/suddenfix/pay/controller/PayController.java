@@ -19,7 +19,7 @@ import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/pay")
+@RequestMapping({"/pay", "/api/pay"})
 public class PayController {
 
     private final IPayService payService;
@@ -42,17 +42,9 @@ public class PayController {
     }
 
     @GetMapping(value = "/success", produces = MediaType.TEXT_HTML_VALUE)
-    public String paySuccessReturn() {
-        return """
-                <!DOCTYPE html>
-                <html lang="zh-CN">
-                <head><meta charset="UTF-8"><title>支付完成</title></head>
-                <body style="font-family: sans-serif; padding: 40px;">
-                  <h2>支付结果已返回</h2>
-                  <p>你可以回到商城查看订单状态。</p>
-                </body>
-                </html>
-                """;
+    public String paySuccessReturn(@RequestParam(value = "orderId", required = false) Long orderId,
+                                   @RequestParam(value = "out_trade_no", required = false) String outTradeNo) {
+        return payService.buildPaySuccessPage(orderId, outTradeNo);
     }
 
     @PostMapping("/mock/create")

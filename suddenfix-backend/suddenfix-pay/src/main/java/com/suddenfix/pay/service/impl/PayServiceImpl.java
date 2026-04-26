@@ -28,6 +28,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.Date;
@@ -74,6 +76,9 @@ public class PayServiceImpl implements IPayService {
 
     @Value("${alipay.return-url}")
     private String returnUrl;
+
+    @Value("${suddenfix.frontend-base-url:http://localhost:4173}")
+    private String frontendBaseUrl;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -151,7 +156,7 @@ public class PayServiceImpl implements IPayService {
         try {
             AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
             request.setNotifyUrl(notifyUrl);
-            request.setReturnUrl(returnUrl);
+            request.setReturnUrl(buildReturnUrl(pay.getOrderId()));
 
             JSONObject bizContent = new JSONObject();
             bizContent.set("out_trade_no", pay.getOutTradeNo());
@@ -164,6 +169,54 @@ public class PayServiceImpl implements IPayService {
         } catch (AlipayApiException e) {
             throw new ServiceException("创建支付宝支付页失败");
         }
+    }
+
+    @Override
+    public String buildPaySuccessPage(Long orderId, String outTradeNo) {
+        Long resolvedOrderId = orderId;
+        if (resolvedOrderId == null && outTradeNo != null && !outTradeNo.isBlank()) {
+            Pay pay = payMapper.selectPayByOutTradeNo(outTradeNo);
+            if (pay != null) {
+                resolvedOrderId = pay.getOrderId();
+            }
+        }
+
+        String redirectUrl = buildFrontendSuccessUrl(resolvedOrderId);
+        return """
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                  <meta charset="UTF-8">
+                  <meta http-equiv="refresh" content="0;url=%s">
+                  <title>支付完成</title>
+                  <style>
+                    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; background: #fff7ef; color: #301710; }
+                    main { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+                    section { width: min(560px, 100%%); padding: 32px; border-radius: 24px; text-align: center; background: rgba(255,255,255,0.94); box-shadow: 0 24px 60px rgba(153,77,28,0.16); }
+                    h1 { margin: 0 0 12px; font-size: 30px; }
+                    p { margin: 0; color: #7f5b49; line-height: 1.7; }
+                    a { display: inline-block; margin-top: 18px; color: #d35b23; font-weight: 700; text-decoration: none; }
+                  </style>
+                </head>
+                <body>
+                  <main>
+                    <section>
+                      <h1>支付成功</h1>
+                      <p>%s</p>
+                      <a href="%s">如果没有自动跳转，请点击这里继续</a>
+                    </section>
+                  </main>
+                  <script>
+                    window.location.replace('%s');
+                  </script>
+                </body>
+                </html>
+                """.formatted(
+                escapeHtml(redirectUrl),
+                escapeHtml(resolvedOrderId == null ? "支付结果已返回，正在回到商城。" : "订单 " + resolvedOrderId + " 支付完成，正在打开订单详情。"),
+                escapeHtml(redirectUrl),
+                escapeJs(redirectUrl)
+        );
     }
 
     private Pay resolvePay(Long orderId, Long userId) {
@@ -367,5 +420,35 @@ public class PayServiceImpl implements IPayService {
 
     private String toYuan(Long amountInFen) {
         return BigDecimal.valueOf(amountInFen == null ? 0L : amountInFen, 2).toPlainString();
+    }
+
+    private String buildReturnUrl(Long orderId) {
+        String delimiter = returnUrl.contains("?") ? "&" : "?";
+        return returnUrl + delimiter + "orderId=" + URLEncoder.encode(String.valueOf(orderId), StandardCharsets.UTF_8);
+    }
+
+    private String buildFrontendSuccessUrl(Long orderId) {
+        String baseUrl = frontendBaseUrl == null || frontendBaseUrl.isBlank()
+                ? "http://localhost:4173"
+                : frontendBaseUrl.replaceAll("/+$", "");
+        if (orderId == null) {
+            return baseUrl + "/account";
+        }
+        return baseUrl + "/pay/success?orderId=" + URLEncoder.encode(String.valueOf(orderId), StandardCharsets.UTF_8);
+    }
+
+    private String escapeHtml(String value) {
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
+    private String escapeJs(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'");
     }
 }

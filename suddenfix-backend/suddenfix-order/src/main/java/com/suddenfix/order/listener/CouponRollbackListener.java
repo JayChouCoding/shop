@@ -3,6 +3,7 @@ package com.suddenfix.order.listener;
 import cn.hutool.json.JSONUtil;
 import com.suddenfix.common.dto.CouponRollbackMessage;
 import com.suddenfix.order.config.OrderEventRabbitConfig;
+import com.suddenfix.order.domain.vo.CouponPreheatVO;
 import com.suddenfix.order.mapper.CouponRecordMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_ROLLBACK_IDEMPOTENT;
-import static com.suddenfix.common.enums.RedisPreMessage.COUPON_STOCK_SEGMENT;
+import static com.suddenfix.common.enums.RedisPreMessage.COUPON_RESERVED;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_SET;
 import static com.suddenfix.common.enums.RedisPreMessage.COUPON_USER_TOKEN_HASH;
 
@@ -44,19 +45,23 @@ public class CouponRollbackListener {
                 ROLLBACK_SCRIPT,
                 List.of(
                         COUPON_ROLLBACK_IDEMPOTENT.getValue() + message.getOrderId(),
-                        COUPON_STOCK_SEGMENT.getValue() + message.getCouponId() + ":" + message.getSegment(),
+                        COUPON_RESERVED.getValue() + message.getCouponId(),
                         COUPON_USER_SET.getValue() + message.getCouponId(),
                         COUPON_USER_TOKEN_HASH.getValue() + message.getCouponId()
                 ),
                 message.getCouponToken(),
-                String.valueOf(message.getUserId())
+                String.valueOf(message.getUserId()),
+                JSONUtil.toJsonStr(CouponPreheatVO.builder()
+                        .couponId(message.getCouponId())
+                        .userId(message.getUserId())
+                        .segment(message.getSegment())
+                        .couponToken(message.getCouponToken())
+                        .build())
         );
 
-        // Lua 把“幂等标记 + token 归还 + 用户去重集合清理 + claim 明细删除”一次做完，
-        // 即使 MQ 重投也不会把同一个 token 放回两次。
         if (Long.valueOf(1L).equals(result)) {
-            log.info("【优惠券回滚】订单 {} 的 token {} 已归还到 segment {}",
-                    message.getOrderId(), message.getCouponToken(), message.getSegment());
+            log.info("【优惠券回滚】订单 {} 的优惠券 {} 已恢复给用户 {}",
+                    message.getOrderId(), message.getCouponToken(), message.getUserId());
             return;
         }
         log.info("【优惠券回滚】订单 {} 已经补偿过，忽略重复消息", message.getOrderId());
@@ -70,9 +75,9 @@ public class CouponRollbackListener {
                     return 0
                 end
                 redis.call('set', KEYS[1], '1', 'EX', 604800)
-                redis.call('lpush', KEYS[2], ARGV[1])
-                redis.call('srem', KEYS[3], ARGV[2])
-                redis.call('hdel', KEYS[4], ARGV[2])
+                redis.call('hset', KEYS[4], ARGV[2], ARGV[3])
+                redis.call('sadd', KEYS[3], ARGV[2])
+                redis.call('hdel', KEYS[2], ARGV[1])
                 return 1
                 """);
         return script;
